@@ -80,7 +80,7 @@ type PositionStats struct {
 }
 
 // TradeSignal represents a trading signal
-type TradeSignal struct {
+type TradeSignalOld struct {
 	TokenAddress string    `json:"tokenAddress"`
 	Type        string    `json:"type"`
 	Side        string    `json:"side"`

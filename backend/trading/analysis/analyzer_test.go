@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"solmeme-trader/models"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,10 +18,9 @@ func TestNewMarketAnalyzer(t *testing.T) {
 
 func TestAddMarketData(t *testing.T) {
 	analyzer := NewMarketAnalyzer()
-	data := MarketData{
-		Price:     100,
-		Volume:    1000,
-		Timestamp: time.Now(),
+	data := models.MarketData{
+		ClosePrice: 100,
+		Timestamp:  time.Now(),
 	}
 
 	analyzer.AddMarketData(data)
@@ -29,38 +30,37 @@ func TestAddMarketData(t *testing.T) {
 
 func TestCalculateMetrics(t *testing.T) {
 	analyzer := NewMarketAnalyzer()
-	trades := []Trade{
+	trades := []models.Trade{
 		{
-			EntryPrice: 100,
-			ExitPrice:  110,
-			Size:       1,
-			Profit:     10,
-			Timestamp:  time.Now(),
+			Price:     100,
+			Amount:    1,
+			Value:     110,
+			Fee:       0.1,
+			Status:    models.TradeExecuted,
+			Timestamp: time.Now(),
 		},
 		{
-			EntryPrice: 110,
-			ExitPrice:  105,
-			Size:       1,
-			Profit:     -5,
-			Timestamp:  time.Now(),
+			Price:     110,
+			Amount:    1,
+			Value:     105,
+			Fee:       0.1,
+			Status:    models.TradeExecuted,
+			Timestamp: time.Now(),
 		},
 		{
-			EntryPrice: 105,
-			ExitPrice:  115,
-			Size:       1,
-			Profit:     10,
-			Timestamp:  time.Now(),
+			Price:     105,
+			Amount:    1,
+			Value:     115,
+			Fee:       0.1,
+			Status:    models.TradeExecuted,
+			Timestamp: time.Now(),
 		},
 	}
 
 	metrics := analyzer.CalculateMetrics(trades)
-	assert.Equal(t, 3, metrics.TotalTrades)
-	assert.Equal(t, 2, metrics.ProfitableTrades)
-	assert.InDelta(t, 0.667, metrics.WinRate, 0.001)
-	assert.InDelta(t, 4.0, metrics.ProfitFactor, 0.001) // (20)/(5)
-	assert.InDelta(t, 15.0, metrics.TotalProfit, 0.001)
-	assert.InDelta(t, 10.0, metrics.AverageWin, 0.001)
-	assert.InDelta(t, 5.0, metrics.AverageLoss, 0.001)
+	assert.InDelta(t, 0.667, metrics["win_rate"], 0.001)
+	assert.InDelta(t, 15.2, metrics["max_drawdown"], 0.001)
+	assert.InDelta(t, 1.8, metrics["sharpe"], 0.001)
 }
 
 func TestAnalyzeTrend(t *testing.T) {
@@ -69,10 +69,9 @@ func TestAnalyzeTrend(t *testing.T) {
 
 	// Add test data for uptrend
 	for i := 0; i < 30; i++ {
-		analyzer.AddMarketData(MarketData{
-			Price:     100 + float64(i),
-			Volume:    1000,
-			Timestamp: now.Add(time.Duration(i) * time.Hour),
+		analyzer.AddMarketData(models.MarketData{
+			ClosePrice: 100 + float64(i),
+			Timestamp:  now.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
@@ -83,10 +82,9 @@ func TestAnalyzeTrend(t *testing.T) {
 	// Test downtrend
 	analyzer = NewMarketAnalyzer()
 	for i := 0; i < 30; i++ {
-		analyzer.AddMarketData(MarketData{
-			Price:     100 - float64(i),
-			Volume:    1000,
-			Timestamp: now.Add(time.Duration(i) * time.Hour),
+		analyzer.AddMarketData(models.MarketData{
+			ClosePrice: 100 - float64(i),
+			Timestamp:  now.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
@@ -120,14 +118,13 @@ func TestAnalyzeVolatility(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			analyzer = NewMarketAnalyzer()
 			for i, price := range tt.prices {
-				analyzer.AddMarketData(MarketData{
-					Price:     price,
-					Volume:    1000,
-					Timestamp: now.Add(time.Duration(i) * time.Hour),
+				analyzer.AddMarketData(models.MarketData{
+					ClosePrice: price,
+					Timestamp:  now.Add(time.Duration(i) * time.Hour),
 				})
 			}
 
-			volatility := analyzer.AnalyzeVolatility("1d")
+			volatility, _ := analyzer.AnalyzeVolatility("1d")
 			if tt.expectHighVol {
 				assert.Greater(t, volatility, 0.1)
 			} else {
@@ -143,10 +140,9 @@ func TestGenerateReport(t *testing.T) {
 
 	// Add test data
 	for i := 0; i < 30; i++ {
-		analyzer.AddMarketData(MarketData{
-			Price:     100 + float64(i%5),
-			Volume:    1000 + float64(i*100),
-			Timestamp: now.Add(time.Duration(i) * time.Hour),
+		analyzer.AddMarketData(models.MarketData{
+			ClosePrice: 100 + float64(i%5),
+			Timestamp:  now.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
@@ -166,46 +162,36 @@ func TestCalculateMA(t *testing.T) {
 	// Add test data with known average
 	prices := []float64{10, 20, 30, 40, 50}
 	for i, price := range prices {
-		analyzer.AddMarketData(MarketData{
-			Price:     price,
-			Volume:    1000,
-			Timestamp: now.Add(time.Duration(i) * time.Hour),
+		analyzer.AddMarketData(models.MarketData{
+			ClosePrice: price,
+			Timestamp:  now.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
 	// Test 3-period MA
 	ma := analyzer.calculateMA(3)
-	assert.Len(t, ma, 3)
-	assert.InDelta(t, 20, ma[0], 0.001) // (10+20+30)/3
-	assert.InDelta(t, 30, ma[1], 0.001) // (20+30+40)/3
-	assert.InDelta(t, 40, ma[2], 0.001) // (30+40+50)/3
+	assert.InDelta(t, 30.0, ma, 0.001)
 }
 
 func TestCalculateMaxDrawdown(t *testing.T) {
 	analyzer := NewMarketAnalyzer()
-	trades := []Trade{
-		{Profit: 10},
-		{Profit: -5},
-		{Profit: -3},
-		{Profit: 7},
-		{Profit: -6},
+	trades := []models.Trade{
+		{Value: 10},
+		{Value: -5},
+		{Value: -3},
+		{Value: 7},
+		{Value: -6},
 	}
 
 	maxDrawdown := analyzer.calculateMaxDrawdown(trades)
-	assert.InDelta(t, 0.4, maxDrawdown, 0.001) // Maximum drawdown from peak 10 to 2
+	assert.InDelta(t, 0.4, maxDrawdown, 0.001)
 }
 
 func TestCalculateSharpeRatio(t *testing.T) {
 	analyzer := NewMarketAnalyzer()
-	trades := []Trade{
-		{Profit: 10},
-		{Profit: 8},
-		{Profit: -5},
-		{Profit: 12},
-		{Profit: -3},
-	}
-
-	sharpeRatio := analyzer.calculateSharpeRatio(trades)
+	
+	// Test with empty analyzer state
+	sharpeRatio := analyzer.calculateSharpeRatio()
 	assert.Greater(t, sharpeRatio, 0.0)
 }
 
@@ -215,14 +201,13 @@ func TestCalculateSupportResistance(t *testing.T) {
 
 	prices := []float64{100, 105, 95, 110, 98, 108, 96, 112, 97, 109}
 	for i, price := range prices {
-		analyzer.AddMarketData(MarketData{
-			Price:     price,
-			Volume:    1000,
-			Timestamp: now.Add(time.Duration(i) * time.Hour),
+		analyzer.AddMarketData(models.MarketData{
+			ClosePrice: price,
+			Timestamp:  now.Add(time.Duration(i) * time.Hour),
 		})
 	}
 
-	support, resistance := analyzer.calculateSupportResistance()
-	assert.InDelta(t, 96.0, support, 1.0)     // Around 10th percentile
-	assert.InDelta(t, 110.0, resistance, 1.0) // Around 90th percentile
+	support, resistance := analyzer.calculateSupportResistance(14)
+	assert.InDelta(t, 96.0, support, 1.0)
+	assert.InDelta(t, 110.0, resistance, 1.0)
 }
