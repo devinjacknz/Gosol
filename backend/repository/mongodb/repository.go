@@ -2,551 +2,349 @@ package mongodb
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"solmeme-trader/models"
-	"solmeme-trader/monitoring"
 	"solmeme-trader/repository"
 )
 
-// Collection names
-const (
-	marketDataCollection = "market_data"
-	positionCollection  = "positions"
-	tradeCollection     = "trades"
-	statsCollection     = "stats"
-	analysisCollection  = "analysis"
-	indicatorCollection = "indicators"
-	eventCollection     = "events"
-)
-
-// MongoRepository implements repository.Repository
+// MongoRepository implements the Repository interface using MongoDB
 type MongoRepository struct {
-	client   *mongo.Client
-	database *mongo.Database
-	options  repository.Options
+	client     *mongo.Client
+	database   string
+	trades     *mongo.Collection
+	positions  *mongo.Collection
+	marketData *mongo.Collection
+	dailyStats *mongo.Collection
+	analysis   *mongo.Collection
 }
 
 // NewRepository creates a new MongoDB repository
-func NewRepository(ctx context.Context, uri string, dbName string) (repository.Repository, error) {
-	opts := repository.DefaultOptions()
-	opts.URI = uri
-	opts.Database = dbName
-
+func NewRepository(ctx context.Context, opts repository.Options) (repository.Repository, error) {
 	clientOpts := options.Client().
-		ApplyURI(uri).
+		ApplyURI(opts.URI).
 		SetConnectTimeout(opts.ConnectTimeout).
-		SetMaxConnecting(uint64(opts.MaxConnections)).
-		SetMinPoolSize(uint64(opts.MinConnections)).
-		SetMaxPoolSize(uint64(opts.MaxConnections))
+		SetMaxPoolSize(opts.MaxConnections).
+		SetMinPoolSize(opts.MinConnections).
+		SetMaxConnecting(opts.MaxConnections)
+
+	if opts.Username != "" && opts.Password != "" {
+		clientOpts.SetAuth(options.Credential{
+			Username: opts.Username,
+			Password: opts.Password,
+		})
+	}
 
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
-	}
-
-	// Ping database to verify connection
-	if err := client.Ping(ctx, nil); err != nil {
-		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
-	}
-
-	return &MongoRepository{
-		client:   client,
-		database: client.Database(dbName),
-		options:  opts,
-	}, nil
-}
-
-// Market data operations
-
-func (r *MongoRepository) SaveMarketData(ctx context.Context, data *models.MarketData) error {
-	_, err := r.database.Collection(marketDataCollection).InsertOne(ctx, data)
-	return err
-}
-
-func (r *MongoRepository) GetMarketData(ctx context.Context, tokenAddress string) (*models.MarketData, error) {
-	var data models.MarketData
-	err := r.database.Collection(marketDataCollection).FindOne(ctx, bson.M{
-		"token_address": tokenAddress,
-	}).Decode(&data)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
-	}
-	return &data, err
-}
-
-func (r *MongoRepository) GetMarketDataHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.MarketData, error) {
-	cursor, err := r.database.Collection(marketDataCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-		"timestamp": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	})
-	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
 
-	var data []*models.MarketData
-	if err := cursor.All(ctx, &data); err != nil {
-		return nil, err
+	repo := &MongoRepository{
+		client:     client,
+		database:   opts.Database,
+		trades:     client.Database(opts.Database).Collection("trades"),
+		positions:  client.Database(opts.Database).Collection("positions"),
+		marketData: client.Database(opts.Database).Collection("market_data"),
+		dailyStats: client.Database(opts.Database).Collection("daily_stats"),
+		analysis:   client.Database(opts.Database).Collection("analysis"),
 	}
-	return data, nil
+
+	return repo, nil
 }
 
-func (r *MongoRepository) GetLatestMarketData(ctx context.Context, tokenAddress string) (*models.MarketData, error) {
-	var data models.MarketData
-	err := r.database.Collection(marketDataCollection).FindOne(ctx, bson.M{
-		"token_address": tokenAddress,
-	}, options.FindOne().SetSort(bson.M{"timestamp": -1})).Decode(&data)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
-	}
-	return &data, err
-}
-
-// Position operations
-
-func (r *MongoRepository) SavePosition(ctx context.Context, position *models.Position) error {
-	_, err := r.database.Collection(positionCollection).InsertOne(ctx, position)
-	return err
-}
-
-func (r *MongoRepository) UpdatePosition(ctx context.Context, position *models.Position) error {
-	_, err := r.database.Collection(positionCollection).ReplaceOne(ctx, bson.M{
-		"id": position.ID,
-	}, position)
-	return err
-}
-
-func (r *MongoRepository) GetPosition(ctx context.Context, id string) (*models.Position, error) {
-	var position models.Position
-	err := r.database.Collection(positionCollection).FindOne(ctx, bson.M{
-		"id": id,
-	}).Decode(&position)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
-	}
-	return &position, err
-}
-
-func (r *MongoRepository) GetOpenPositions(ctx context.Context) ([]*models.Position, error) {
-	cursor, err := r.database.Collection(positionCollection).Find(ctx, bson.M{
-		"status": models.PositionStatusOpen,
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var positions []*models.Position
-	if err := cursor.All(ctx, &positions); err != nil {
-		return nil, err
-	}
-	return positions, nil
-}
-
-func (r *MongoRepository) GetPositionsByToken(ctx context.Context, tokenAddress string) ([]*models.Position, error) {
-	cursor, err := r.database.Collection(positionCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var positions []*models.Position
-	if err := cursor.All(ctx, &positions); err != nil {
-		return nil, err
-	}
-	return positions, nil
-}
-
-func (r *MongoRepository) GetPositionHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.Position, error) {
-	cursor, err := r.database.Collection(positionCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-		"open_time": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var positions []*models.Position
-	if err := cursor.All(ctx, &positions); err != nil {
-		return nil, err
-	}
-	return positions, nil
-}
-
-// Trade operations
-
-func (r *MongoRepository) SaveTrade(ctx context.Context, trade *models.Trade) error {
-	_, err := r.database.Collection(tradeCollection).InsertOne(ctx, trade)
-	return err
-}
-
-func (r *MongoRepository) UpdateTrade(ctx context.Context, trade *models.Trade) error {
-	_, err := r.database.Collection(tradeCollection).ReplaceOne(ctx, bson.M{
-		"id": trade.ID,
-	}, trade)
-	return err
-}
-
-func (r *MongoRepository) UpdateTradeStatus(ctx context.Context, tradeID string, status string, reason *string) error {
-	update := bson.M{
-		"$set": bson.M{
-			"status":      status,
-			"update_time": time.Now(),
-		},
-	}
-	if reason != nil {
-		update["$set"].(bson.M)["reason"] = *reason
-	}
-
-	_, err := r.database.Collection(tradeCollection).UpdateOne(ctx, bson.M{
-		"id": tradeID,
-	}, update)
-	return err
-}
-
-func (r *MongoRepository) GetTrade(ctx context.Context, id string) (*models.Trade, error) {
-	var trade models.Trade
-	err := r.database.Collection(tradeCollection).FindOne(ctx, bson.M{
-		"id": id,
-	}).Decode(&trade)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
-	}
-	return &trade, err
-}
-
-func (r *MongoRepository) GetTradesByToken(ctx context.Context, tokenAddress string) ([]*models.Trade, error) {
-	cursor, err := r.database.Collection(tradeCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var trades []*models.Trade
-	if err := cursor.All(ctx, &trades); err != nil {
-		return nil, err
-	}
-	return trades, nil
-}
-
-func (r *MongoRepository) GetTradeHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.Trade, error) {
-	cursor, err := r.database.Collection(tradeCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-		"timestamp": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var trades []*models.Trade
-	if err := cursor.All(ctx, &trades); err != nil {
-		return nil, err
-	}
-	return trades, nil
-}
-
-func (r *MongoRepository) GetTradeStats(ctx context.Context, tokenAddress string) (int, int, float64, error) {
-	pipeline := mongo.Pipeline{
-		bson.D{{"$match", bson.M{
-			"token_address": tokenAddress,
-			"status":       models.TradeStatusCompleted,
-		}}},
-		bson.D{{"$group", bson.M{
-			"_id": nil,
-			"total_trades": bson.M{"$sum": 1},
-			"winning_trades": bson.M{
-				"$sum": bson.M{
-					"$cond": []interface{}{
-						bson.M{"$gt": []interface{}{"$realized_pnl", 0}},
-						1,
-						0,
-					},
-				},
-			},
-			"total_profit": bson.M{
-				"$sum": bson.M{
-					"$cond": []interface{}{
-						bson.M{"$gt": []interface{}{"$realized_pnl", 0}},
-						"$realized_pnl",
-						0,
-					},
-				},
-			},
-			"total_loss": bson.M{
-				"$sum": bson.M{
-					"$cond": []interface{}{
-						bson.M{"$lt": []interface{}{"$realized_pnl", 0}},
-						bson.M{"$abs": "$realized_pnl"},
-						0,
-					},
-				},
-			},
-		}}},
-	}
-
-	cursor, err := r.database.Collection(tradeCollection).Aggregate(ctx, pipeline)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	defer cursor.Close(ctx)
-
-	var results []struct {
-		TotalTrades   int     `bson:"total_trades"`
-		WinningTrades int     `bson:"winning_trades"`
-		TotalProfit   float64 `bson:"total_profit"`
-		TotalLoss     float64 `bson:"total_loss"`
-	}
-
-	if err := cursor.All(ctx, &results); err != nil {
-		return 0, 0, 0, err
-	}
-
-	if len(results) == 0 {
-		return 0, 0, 0, nil
-	}
-
-	profitFactor := 0.0
-	if results[0].TotalLoss > 0 {
-		profitFactor = results[0].TotalProfit / results[0].TotalLoss
-	}
-
-	return results[0].TotalTrades, results[0].WinningTrades, profitFactor, nil
-}
-
-// Stats operations
-
+// SaveDailyStats saves daily trading statistics
 func (r *MongoRepository) SaveDailyStats(ctx context.Context, stats *models.DailyStats) error {
-	_, err := r.database.Collection(statsCollection).InsertOne(ctx, stats)
+	filter := bson.M{"date": stats.Date}
+	update := bson.M{"$set": stats}
+	opts := options.Update().SetUpsert(true)
+
+	_, err := r.dailyStats.UpdateOne(ctx, filter, update, opts)
 	return err
 }
 
+// GetDailyStats retrieves daily trading statistics for a specific date
 func (r *MongoRepository) GetDailyStats(ctx context.Context, date time.Time) (*models.DailyStats, error) {
+	// Normalize date to start of day
+	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+
 	var stats models.DailyStats
-	err := r.database.Collection(statsCollection).FindOne(ctx, bson.M{
-		"date": date,
-	}).Decode(&stats)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
+	err := r.dailyStats.FindOne(ctx, bson.M{"date": startOfDay}).Decode(&stats)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			// Return empty stats for the day if none exist
+			return &models.DailyStats{
+				Date: startOfDay,
+			}, nil
+		}
+		return nil, err
 	}
-	return &stats, err
+
+	return &stats, nil
 }
 
-func (r *MongoRepository) GetDailyStatsRange(ctx context.Context, start, end time.Time) ([]*models.DailyStats, error) {
-	cursor, err := r.database.Collection(statsCollection).Find(ctx, bson.M{
+// GetDailyStatsRange retrieves daily trading statistics for a date range
+func (r *MongoRepository) GetDailyStatsRange(ctx context.Context, startDate, endDate time.Time) ([]*models.DailyStats, error) {
+	// Normalize dates to start of day
+	startOfDay := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
+	endOfDay := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 999999999, endDate.Location())
+
+	filter := bson.M{
 		"date": bson.M{
-			"$gte": start,
-			"$lte": end,
+			"$gte": startOfDay,
+			"$lte": endOfDay,
 		},
-	})
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "date", Value: 1}})
+
+	cursor, err := r.dailyStats.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
 	var stats []*models.DailyStats
-	if err := cursor.All(ctx, &stats); err != nil {
+	if err = cursor.All(ctx, &stats); err != nil {
 		return nil, err
 	}
+
 	return stats, nil
 }
 
-func (r *MongoRepository) CalculateCurrentProfit(ctx context.Context, tokenAddress string) (float64, error) {
-	pipeline := mongo.Pipeline{
-		bson.D{{"$match", bson.M{
-			"token_address": tokenAddress,
-			"status":       models.TradeStatusCompleted,
-		}}},
-		bson.D{{"$group", bson.M{
-			"_id":    nil,
-			"profit": bson.M{"$sum": "$realized_pnl"},
-		}}},
-	}
+// SaveMarketData saves market data
+func (r *MongoRepository) SaveMarketData(ctx context.Context, data *models.MarketData) error {
+	filter := bson.M{"token_address": data.TokenAddress}
+	update := bson.M{"$set": data}
+	opts := options.Update().SetUpsert(true)
 
-	cursor, err := r.database.Collection(tradeCollection).Aggregate(ctx, pipeline)
-	if err != nil {
-		return 0, err
-	}
-	defer cursor.Close(ctx)
-
-	var results []struct {
-		Profit float64 `bson:"profit"`
-	}
-
-	if err := cursor.All(ctx, &results); err != nil {
-		return 0, err
-	}
-
-	if len(results) == 0 {
-		return 0, nil
-	}
-
-	return results[0].Profit, nil
-}
-
-// Analysis operations
-
-func (r *MongoRepository) SaveAnalysisResult(ctx context.Context, result *models.AnalysisResult) error {
-	_, err := r.database.Collection(analysisCollection).InsertOne(ctx, result)
+	_, err := r.marketData.UpdateOne(ctx, filter, update, opts)
 	return err
 }
 
-func (r *MongoRepository) GetAnalysisResult(ctx context.Context, tokenAddress string) (*models.AnalysisResult, error) {
-	var result models.AnalysisResult
-	err := r.database.Collection(analysisCollection).FindOne(ctx, bson.M{
-		"token_address": tokenAddress,
-	}, options.FindOne().SetSort(bson.M{"timestamp": -1})).Decode(&result)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
+// GetLatestMarketData retrieves the latest market data for a token
+func (r *MongoRepository) GetLatestMarketData(ctx context.Context, tokenAddress string) (*models.MarketData, error) {
+	var data models.MarketData
+	err := r.marketData.FindOne(ctx, bson.M{"token_address": tokenAddress}).Decode(&data)
+	if err != nil {
+		return nil, err
 	}
-	return &result, err
+	return &data, nil
 }
 
-func (r *MongoRepository) GetAnalysisHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.AnalysisResult, error) {
-	cursor, err := r.database.Collection(analysisCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-		"timestamp": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	})
+// GetHistoricalMarketData retrieves historical market data for a token
+func (r *MongoRepository) GetHistoricalMarketData(ctx context.Context, tokenAddress string, limit int) ([]*models.MarketData, error) {
+	opts := options.Find().
+		SetSort(bson.D{{Key: "timestamp", Value: -1}}).
+		SetLimit(int64(limit))
+
+	cursor, err := r.marketData.Find(ctx, bson.M{"token_address": tokenAddress}, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	var results []*models.AnalysisResult
-	if err := cursor.All(ctx, &results); err != nil {
+	var data []*models.MarketData
+	if err = cursor.All(ctx, &data); err != nil {
 		return nil, err
 	}
-	return results, nil
+
+	return data, nil
 }
 
-// Technical indicators
-
-func (r *MongoRepository) SaveTechnicalIndicators(ctx context.Context, tokenAddress string, indicators *models.TechnicalIndicators) error {
-	doc := bson.M{
+// GetMarketStats retrieves market statistics for a token
+func (r *MongoRepository) GetMarketStats(ctx context.Context, tokenAddress string) (*models.MarketStats, error) {
+	var stats models.MarketStats
+	err := r.marketData.FindOne(ctx, bson.M{
 		"token_address": tokenAddress,
-		"indicators":    indicators,
-		"timestamp":     time.Now(),
+	}).Decode(&stats)
+	if err != nil {
+		return nil, err
 	}
-	_, err := r.database.Collection(indicatorCollection).InsertOne(ctx, doc)
-	return err
+	return &stats, nil
 }
 
+// GetTechnicalIndicators retrieves technical indicators for a token
 func (r *MongoRepository) GetTechnicalIndicators(ctx context.Context, tokenAddress string) (*models.TechnicalIndicators, error) {
-	var doc struct {
-		Indicators *models.TechnicalIndicators `bson:"indicators"`
-	}
-	err := r.database.Collection(indicatorCollection).FindOne(ctx, bson.M{
+	var indicators models.TechnicalIndicators
+	err := r.marketData.FindOne(ctx, bson.M{
 		"token_address": tokenAddress,
-	}, options.FindOne().SetSort(bson.M{"timestamp": -1})).Decode(&doc)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
-	}
-	return doc.Indicators, err
-}
-
-func (r *MongoRepository) GetIndicatorsHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.TechnicalIndicators, error) {
-	cursor, err := r.database.Collection(indicatorCollection).Find(ctx, bson.M{
-		"token_address": tokenAddress,
-		"timestamp": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	})
+	}).Decode(&indicators)
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
-
-	var docs []struct {
-		Indicators *models.TechnicalIndicators `bson:"indicators"`
-	}
-	if err := cursor.All(ctx, &docs); err != nil {
-		return nil, err
-	}
-
-	indicators := make([]*models.TechnicalIndicators, len(docs))
-	for i, doc := range docs {
-		indicators[i] = doc.Indicators
-	}
-	return indicators, nil
+	return &indicators, nil
 }
 
-// Monitoring operations
+// SaveAnalysisResult saves market analysis results
+func (r *MongoRepository) SaveAnalysisResult(ctx context.Context, result *models.AnalysisResult) error {
+	filter := bson.M{"token_address": result.TokenAddress}
+	update := bson.M{"$set": result}
+	opts := options.Update().SetUpsert(true)
 
-func (r *MongoRepository) SaveEvent(ctx context.Context, event *monitoring.Event) error {
-	_, err := r.database.Collection(eventCollection).InsertOne(ctx, event)
+	_, err := r.analysis.UpdateOne(ctx, filter, update, opts)
 	return err
 }
 
-func (r *MongoRepository) GetEvents(ctx context.Context, eventType string, start, end time.Time) ([]*monitoring.Event, error) {
-	cursor, err := r.database.Collection(eventCollection).Find(ctx, bson.M{
-		"type": eventType,
-		"timestamp": bson.M{
-			"$gte": start,
-			"$lte": end,
+// GetLatestAnalysis retrieves the latest analysis for a token
+func (r *MongoRepository) GetLatestAnalysis(ctx context.Context, tokenAddress string) (*models.AnalysisResult, error) {
+	var result models.AnalysisResult
+	err := r.analysis.FindOne(ctx, bson.M{
+		"token_address": tokenAddress,
+	}).Decode(&result)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ClosePosition closes a position with the given ID and close price
+func (r *MongoRepository) ClosePosition(ctx context.Context, id string, closePrice float64) error {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"status":        repository.PositionStatusClosed,
+			"current_price": closePrice,
+			"close_time":   time.Now(),
+			"last_updated": time.Now(),
 		},
-	})
+	}
+
+	_, err = r.positions.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+	return err
+}
+
+// UpdateTrade updates a trade in the database
+func (r *MongoRepository) UpdateTrade(ctx context.Context, trade *models.Trade) error {
+	objectID, err := primitive.ObjectIDFromHex(trade.ID)
+	if err != nil {
+		return err
+	}
+
+	trade.UpdateTime = time.Now()
+	_, err = r.trades.ReplaceOne(ctx, bson.M{"_id": objectID}, trade)
+	return err
+}
+
+// SavePosition saves a position to the database
+func (r *MongoRepository) SavePosition(ctx context.Context, position *models.Position) error {
+	if position.ID == "" {
+		position.ID = primitive.NewObjectID().Hex()
+	}
+	position.LastUpdated = time.Now()
+	
+	_, err := r.positions.InsertOne(ctx, position)
+	return err
+}
+
+// GetPositionByID retrieves a position by ID
+func (r *MongoRepository) GetPositionByID(ctx context.Context, id string) (*models.Position, error) {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+
+	var position models.Position
+	err = r.positions.FindOne(ctx, bson.M{"_id": objectID}).Decode(&position)
+	if err != nil {
+		return nil, err
+	}
+
+	return &position, nil
+}
+
+// ListPositions lists positions based on filter
+func (r *MongoRepository) ListPositions(ctx context.Context, filter *models.PositionFilter) ([]*models.Position, error) {
+	query := bson.M{}
+	if filter.TokenAddress != "" {
+		query["token_address"] = filter.TokenAddress
+	}
+	if filter.Side != "" {
+		query["side"] = filter.Side
+	}
+	if filter.Status != "" {
+		query["status"] = filter.Status
+	}
+	if filter.StartTime != nil {
+		query["open_time"] = bson.M{"$gte": filter.StartTime}
+	}
+	if filter.EndTime != nil {
+		if _, ok := query["open_time"]; ok {
+			query["open_time"].(bson.M)["$lte"] = filter.EndTime
+		} else {
+			query["open_time"] = bson.M{"$lte": filter.EndTime}
+		}
+	}
+
+	cursor, err := r.positions.Find(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	var events []*monitoring.Event
-	if err := cursor.All(ctx, &events); err != nil {
+	var positions []*models.Position
+	if err = cursor.All(ctx, &positions); err != nil {
 		return nil, err
 	}
-	return events, nil
+
+	return positions, nil
 }
 
-func (r *MongoRepository) GetEventsByToken(ctx context.Context, tokenAddress string, start, end time.Time) ([]*monitoring.Event, error) {
-	cursor, err := r.database.Collection(eventCollection).Find(ctx, bson.M{
-		"token": tokenAddress,
-		"timestamp": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
+// GetOpenPositions retrieves all open positions
+func (r *MongoRepository) GetOpenPositions(ctx context.Context) ([]*models.Position, error) {
+	return r.ListPositions(ctx, &models.PositionFilter{
+		Status: repository.PositionStatusOpen,
 	})
+}
+
+// UpdatePosition updates a position in the database
+func (r *MongoRepository) UpdatePosition(ctx context.Context, position *models.Position) error {
+	objectID, err := primitive.ObjectIDFromHex(position.ID)
+	if err != nil {
+		return err
+	}
+
+	position.LastUpdated = time.Now()
+	_, err = r.positions.ReplaceOne(ctx, bson.M{"_id": objectID}, position)
+	return err
+}
+
+// GetPositionStats retrieves position statistics
+func (r *MongoRepository) GetPositionStats(ctx context.Context, filter *models.PositionFilter) (*models.PositionStats, error) {
+	positions, err := r.ListPositions(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close(ctx)
 
-	var events []*monitoring.Event
-	if err := cursor.All(ctx, &events); err != nil {
-		return nil, err
+	stats := &models.PositionStats{
+		LastUpdated: time.Now(),
 	}
-	return events, nil
+
+	for _, pos := range positions {
+		stats.TotalPositions++
+		if pos.Status == repository.PositionStatusOpen {
+			stats.OpenPositions++
+			stats.UnrealizedPnL += pos.UnrealizedPnL
+			stats.TotalValue += pos.Value
+		} else {
+			stats.ClosedPositions++
+			stats.RealizedPnL += pos.RealizedPnL
+		}
+	}
+
+	return stats, nil
 }
 
-// Utility operations
-
+// Ping checks the database connection
 func (r *MongoRepository) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx, nil)
-}
-
-func (r *MongoRepository) Close() error {
-	return r.client.Disconnect(context.Background())
 }

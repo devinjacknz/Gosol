@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -11,170 +10,83 @@ import (
 	"time"
 
 	"solmeme-trader/dex"
-	"solmeme-trader/models"
 	"solmeme-trader/monitoring"
+	"solmeme-trader/repository"
 	"solmeme-trader/repository/mongodb"
 	"solmeme-trader/service"
-	"solmeme-trader/trading"
-	"solmeme-trader/trading/risk"
 )
 
-// Config represents application configuration
-type Config struct {
-	MongoDB struct {
-		URI      string
-		Database string
-	}
-	Trading struct {
-		MaxPositions    int
-		MaxPositionSize float64
-		MaxLeverage     float64
-		MaxDrawdown     float64
-		InitialCapital  float64
-		RiskPerTrade    float64
-	}
-}
-
-// loadConfig loads configuration from environment variables
-func loadConfig() (*Config, error) {
-	return &Config{
-		MongoDB: struct {
-			URI      string
-			Database string
-		}{
-			URI:      os.Getenv("MONGODB_URI"),
-			Database: os.Getenv("MONGODB_DATABASE"),
-		},
-		Trading: struct {
-			MaxPositions    int
-			MaxPositionSize float64
-			MaxLeverage     float64
-			MaxDrawdown     float64
-			InitialCapital  float64
-			RiskPerTrade    float64
-		}{
-			MaxPositions:    5,
-			MaxPositionSize: 1000,
-			MaxLeverage:     5,
-			MaxDrawdown:     0.2,
-			InitialCapital:  10000,
-			RiskPerTrade:    0.02,
-		},
-	}, nil
-}
-
 func main() {
-	// Initialize context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
-	// Load configuration
-	cfg, err := loadConfig()
+	// Initialize MongoDB repository
+	repo, err := mongodb.NewRepository(ctx, repository.Options{
+		URI:            os.Getenv("MONGODB_URI"),
+		Database:       os.Getenv("MONGODB_DATABASE"),
+		Username:       os.Getenv("MONGODB_USERNAME"),
+		Password:       os.Getenv("MONGODB_PASSWORD"),
+		ConnectTimeout: 5 * time.Second,
+		Timeout:       10 * time.Second,
+		MaxConnections: 100,
+		MinConnections: 10,
+	})
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
-	// Initialize repository
-	repo, err := mongodb.NewRepository(ctx, cfg.MongoDB.URI, cfg.MongoDB.Database)
-	if err != nil {
-		log.Fatalf("Failed to initialize repository: %v", err)
-	}
-
-	// Initialize DEX client
-	dexClient := dex.NewDexClient()
-	marketService := dex.NewMarketDataService(dexClient, 5*time.Minute)
+	// Initialize DEX clients
+	dexClient := dex.NewDexClient(
+		os.Getenv("RAYDIUM_API_URL"),
+		os.Getenv("JUPITER_API_URL"),
+	)
 
 	// Initialize monitoring
 	monitor := monitoring.NewMonitor()
-	monitoringAPI := monitoring.NewAPI(monitor)
+	monitorAPI := monitoring.NewAPI(monitor)
 
-	// Initialize risk manager
-	riskConfig := risk.RiskConfig{
-		MaxPositions:    cfg.Trading.MaxPositions,
-		MaxPositionSize: cfg.Trading.MaxPositionSize,
-		MaxLeverage:     cfg.Trading.MaxLeverage,
-		MaxDrawdown:     cfg.Trading.MaxDrawdown,
-		InitialCapital:  cfg.Trading.InitialCapital,
-		RiskPerTrade:    cfg.Trading.RiskPerTrade,
-	}
-	riskManager := risk.NewRiskManager(riskConfig)
+	// Initialize market data service
+	marketService := dexClient.GetMarketService()
 
-	// Initialize trade executor
-	executor := trading.NewExecutor(repo, dexClient, riskManager, monitor)
+	// Initialize services
+	svc := service.NewService(repo, dexClient, marketService, monitor)
 
-	// Initialize service
-	svc := service.NewService(repo, nil, marketService, monitor)
-
-	// Initialize HTTP server
+	// Create router
 	mux := http.NewServeMux()
-	monitoringAPI.RegisterRoutes(mux)
 
-	server := &http.Server{
+	// Register API routes
+	svc.Routes(mux)
+
+	// Register monitoring routes
+	monitorAPI.RegisterRoutes(mux)
+
+	// Create server
+	srv := &http.Server{
 		Addr:    ":8080",
 		Handler: mux,
 	}
 
-	// Start HTTP server
+	// Start server in a goroutine
 	go func() {
-		log.Printf("Starting server on %s", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+		log.Printf("Starting server on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
 		}
 	}()
 
-	// Create channels for subscriptions
-	marketDataChan := make(chan []byte, 100)
-	tradeSignalChan := make(chan []byte, 100)
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
 
-	// Subscribe to market data
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg := <-marketDataChan:
-				if err := svc.ProcessMarketData(ctx, string(msg)); err != nil {
-					log.Printf("Failed to process market data: %v", err)
-				}
-			}
-		}
-	}()
+	// Create shutdown context with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Subscribe to trade signals
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg := <-tradeSignalChan:
-				var signal models.TradeSignalMessage
-				if err := json.Unmarshal(msg, &signal); err != nil {
-					log.Printf("Failed to unmarshal trade signal: %v", err)
-					continue
-				}
-
-				if err := executor.ExecuteSignal(ctx, &signal); err != nil {
-					log.Printf("Failed to execute trade signal: %v", err)
-				}
-			}
-		}
-	}()
-
-	// Handle shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	log.Println("Shutting down...")
-
-	// Shutdown HTTP server
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Failed to shutdown server: %v", err)
+	// Shutdown server
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
-	// Cancel context to stop goroutines
-	cancel()
+	log.Println("Server exited properly")
 }

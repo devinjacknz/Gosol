@@ -1,0 +1,59 @@
+{
+  "short_name": "Solmeme",
+  "name": "Solmeme Trader",
+  "description": "Advanced trading platform for Solana meme tokens",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#007bff",
+  "background_color": "#f8f9fa",
+  "orientation": "any",
+  "categories": ["finance", "trading", "cryptocurrency"],
+  "screenshots": [
+    {
+      "src": "screenshot1.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "platform": "wide",
+      "label": "Trading Dashboard"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Market Analysis",
+      "url": "/market",
+      "description": "View market analysis and trading signals"
+    },
+    {
+      "name": "Trade History",
+      "url": "/history",
+      "description": "View your trading history and performance"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "protocol_handlers": [
+    {
+      "protocol": "web+solmeme",
+      "url": "/%s"
+    }
+  ]
+}

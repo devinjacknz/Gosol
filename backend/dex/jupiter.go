@@ -5,46 +5,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
+	"net/url"
+	"strconv"
 )
 
-const (
-	jupiterBaseURL  = "https://price.jup.ag/v4"
-	jupiterQuoteURL = "https://quote-api.jup.ag/v4"
-)
-
-// JupiterClient handles interactions with Jupiter DEX API
+// JupiterClient represents a client for interacting with Jupiter DEX
 type JupiterClient struct {
+	BaseURL    string
 	httpClient *http.Client
 }
 
-// NewJupiterClient creates a new Jupiter API client
-func NewJupiterClient() *JupiterClient {
+// NewJupiterClient creates a new Jupiter client
+func NewJupiterClient(baseURL string) *JupiterClient {
 	return &JupiterClient{
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		BaseURL:    baseURL,
+		httpClient: &http.Client{},
 	}
 }
 
-// GetPrice fetches the current price for a token
-func (c *JupiterClient) GetPrice(ctx context.Context, mintAddress string) (*PriceResponse, error) {
-	url := fmt.Sprintf("%s/price?ids=%s", jupiterBaseURL, mintAddress)
-	
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+// GetPrice gets the price for a token
+func (c *JupiterClient) GetPrice(ctx context.Context, tokenAddress string) (*PriceResponse, error) {
+	endpoint := fmt.Sprintf("%s/v4/price?id=%s", c.BaseURL, tokenAddress)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		return nil, fmt.Errorf("failed to get price: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
 
 	var priceResp PriceResponse
 	if err := json.NewDecoder(resp.Body).Decode(&priceResp); err != nil {
@@ -54,31 +45,25 @@ func (c *JupiterClient) GetPrice(ctx context.Context, mintAddress string) (*Pric
 	return &priceResp, nil
 }
 
-// GetQuote fetches a quote for a swap
-func (c *JupiterClient) GetQuote(ctx context.Context, req QuoteRequest) (*QuoteResponse, error) {
-	url := fmt.Sprintf("%s/quote", jupiterQuoteURL)
-	
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+// GetQuote gets a quote for a token swap
+func (c *JupiterClient) GetQuote(ctx context.Context, req *QuoteRequest) (*QuoteResponse, error) {
+	q := url.Values{}
+	q.Add("inputMint", req.InputMint)
+	q.Add("outputMint", req.OutputMint)
+	q.Add("amount", fmt.Sprintf("%f", req.Amount))
+	q.Add("slippageBps", fmt.Sprintf("%f", req.SlippageBps))
+
+	endpoint := fmt.Sprintf("%s/v4/quote?%s", c.BaseURL, q.Encode())
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	q := httpReq.URL.Query()
-	q.Add("inputMint", req.InputMint)
-	q.Add("outputMint", req.OutputMint)
-	q.Add("amount", req.Amount)
-	q.Add("slippageBps", fmt.Sprintf("%d", req.SlippageBps))
-	httpReq.URL.RawQuery = q.Encode()
-
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		return nil, fmt.Errorf("failed to get quote: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
 
 	var quoteResp QuoteResponse
 	if err := json.NewDecoder(resp.Body).Decode(&quoteResp); err != nil {
@@ -88,24 +73,46 @@ func (c *JupiterClient) GetQuote(ctx context.Context, req QuoteRequest) (*QuoteR
 	return &quoteResp, nil
 }
 
-// GetRouteMap fetches the available trading routes
-func (c *JupiterClient) GetRouteMap(ctx context.Context) (*RouteMap, error) {
-	url := fmt.Sprintf("%s/indexed-route-map", jupiterQuoteURL)
-	
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+// GetTokenInfo gets information about a token
+func (c *JupiterClient) GetTokenInfo(ctx context.Context, tokenAddress string) (*TokenInfo, error) {
+	endpoint := fmt.Sprintf("%s/v4/tokens/%s", c.BaseURL, tokenAddress)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		return nil, fmt.Errorf("failed to get token info: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	var tokenInfo TokenInfo
+	if err := json.NewDecoder(resp.Body).Decode(&tokenInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
+
+	return &tokenInfo, nil
+}
+
+// GetRoutes gets routes for a token swap
+func (c *JupiterClient) GetRoutes(ctx context.Context, inputMint, outputMint string, amount float64) (*RouteMap, error) {
+	q := url.Values{}
+	q.Add("inputMint", inputMint)
+	q.Add("outputMint", outputMint)
+	q.Add("amount", strconv.FormatFloat(amount, 'f', -1, 64))
+
+	endpoint := fmt.Sprintf("%s/v4/routes?%s", c.BaseURL, q.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get routes: %w", err)
+	}
+	defer resp.Body.Close()
 
 	var routeMap RouteMap
 	if err := json.NewDecoder(resp.Body).Decode(&routeMap); err != nil {
@@ -113,87 +120,4 @@ func (c *JupiterClient) GetRouteMap(ctx context.Context) (*RouteMap, error) {
 	}
 
 	return &routeMap, nil
-}
-
-// HasRoute checks if a trading route exists between two tokens
-func (c *JupiterClient) HasRoute(ctx context.Context, inputMint, outputMint string) (bool, error) {
-	routeMap, err := c.GetRouteMap(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	// Find indices of input and output mints
-	var inputIdx, outputIdx int
-	found := false
-	for i, mint := range routeMap.Data.MintKeys {
-		if mint == inputMint {
-			inputIdx = i
-			found = true
-			break
-		}
-	}
-	if !found {
-		return false, nil
-	}
-
-	found = false
-	for i, mint := range routeMap.Data.MintKeys {
-		if mint == outputMint {
-			outputIdx = i
-			found = true
-			break
-		}
-	}
-	if !found {
-		return false, nil
-	}
-
-	// Check if there's a route between the mints
-	routes, ok := routeMap.Data.Routes[fmt.Sprintf("%d", inputIdx)]
-	if !ok {
-		return false, nil
-	}
-
-	for _, route := range routes {
-		if route == fmt.Sprintf("%d", outputIdx) {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// CalculatePriceImpact calculates the price impact for a given trade
-func (c *JupiterClient) CalculatePriceImpact(ctx context.Context, inputMint string, outputMint string, amount string) (float64, error) {
-	quote, err := c.GetQuote(ctx, QuoteRequest{
-		InputMint:   inputMint,
-		OutputMint:  outputMint,
-		Amount:      amount,
-		SlippageBps: 100, // 1% slippage
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	return quote.Data.PriceImpactPct, nil
-}
-
-// GetBestRoute finds the optimal trading route for a swap
-func (c *JupiterClient) GetBestRoute(ctx context.Context, inputMint string, outputMint string, amount string) (string, error) {
-	quote, err := c.GetQuote(ctx, QuoteRequest{
-		InputMint:   inputMint,
-		OutputMint:  outputMint,
-		Amount:      amount,
-		SlippageBps: 100, // 1% slippage
-	})
-	if err != nil {
-		return "", err
-	}
-
-	if len(quote.Data.MarketInfos) == 0 {
-		return "", fmt.Errorf("no routes available")
-	}
-
-	// Return the ID of the first market info (Jupiter already sorts by best route)
-	return quote.Data.MarketInfos[0].ID, nil
 }

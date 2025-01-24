@@ -1,150 +1,118 @@
 package dex
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"sync"
 	"time"
-
-	"solmeme-trader/models"
 )
 
-// DexClient handles DEX interactions
-type DexClient struct {
-	cache     map[string]*MarketInfo
-	cacheLock sync.RWMutex
+// DexClient defines the interface for DEX operations
+type DexClient interface {
+	// Market data operations
+	GetMarketData(ctx context.Context, tokenAddress string) (*MarketData, error)
+	GetOrderBook(ctx context.Context, tokenAddress string) (*OrderBook, error)
+	GetQuote(ctx context.Context, tokenAddress string, amount float64) (float64, error)
+
+	// Trading operations
+	ExecuteTrade(ctx context.Context, tokenAddress string, amount float64, side string) error
+	CancelTrade(ctx context.Context, tradeID string) error
+
+	// Health check
+	Ping(ctx context.Context) error
 }
 
-// NewDexClient creates a new DEX client
-func NewDexClient() *DexClient {
-	return &DexClient{
-		cache: make(map[string]*MarketInfo),
+// BaseClient provides common functionality for DEX clients
+type BaseClient struct {
+	baseURL     string
+	httpClient  *http.Client
+	apiKey      string
+	rateLimit   time.Duration
+	lastRequest time.Time
+	mu          sync.Mutex
+}
+
+// NewBaseClient creates a new base DEX client
+func NewBaseClient(baseURL, apiKey string) *BaseClient {
+	return &BaseClient{
+		baseURL: baseURL,
+		apiKey:  apiKey,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+		rateLimit: 100 * time.Millisecond, // 10 requests per second
 	}
 }
 
-// GetMarketInfo gets market information for a token
-func (c *DexClient) GetMarketInfo(ctx context.Context, tokenAddress string) (*MarketInfo, error) {
-	// Check cache first
-	c.cacheLock.RLock()
-	if info, ok := c.cache[tokenAddress]; ok {
-		if time.Since(info.Timestamp) < 5*time.Second {
-			c.cacheLock.RUnlock()
-			return info, nil
-		}
-	}
-	c.cacheLock.RUnlock()
+// checkRateLimit enforces rate limiting
+func (c *BaseClient) checkRateLimit() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	// Fetch from DEX
-	info, err := c.fetchMarketInfo(ctx, tokenAddress)
+	timeSinceLastRequest := time.Since(c.lastRequest)
+	if timeSinceLastRequest < c.rateLimit {
+		time.Sleep(c.rateLimit - timeSinceLastRequest)
+	}
+	c.lastRequest = time.Now()
+}
+
+// doRequest performs an HTTP request with rate limiting
+func (c *BaseClient) doRequest(req *http.Request) (*http.Response, error) {
+	c.checkRateLimit()
+	
+	req.Header.Set("X-API-Key", c.apiKey)
+	if req.Method == http.MethodPost || req.Method == http.MethodPut {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 
-	// Update cache
-	c.cacheLock.Lock()
-	c.cache[tokenAddress] = info
-	c.cacheLock.Unlock()
-
-	return info, nil
-}
-
-// GetLiquidity gets liquidity information for a token
-func (c *DexClient) GetLiquidity(ctx context.Context, tokenAddress string) (*LiquidityInfo, error) {
-	// TODO: Implement actual DEX API call
-	return &LiquidityInfo{
-		TVL:         1000000,
-		TotalSupply: 1000000,
-	}, nil
-}
-
-// GetRecentTrades gets recent trades for a token
-func (c *DexClient) GetRecentTrades(ctx context.Context, tokenAddress string, limit int) ([]*Trade, error) {
-	// TODO: Implement actual DEX API call
-	trades := make([]*Trade, 0, limit)
-	now := time.Now()
-
-	for i := 0; i < limit; i++ {
-		trades = append(trades, &Trade{
-			Price:     100 + float64(i),
-			Size:      1,
-			Side:      models.OrderSideBuy,
-			Timestamp: now.Add(-time.Duration(i) * time.Minute),
-		})
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return trades, nil
+	return resp, nil
 }
 
-// fetchMarketInfo fetches market information from DEX
-func (c *DexClient) fetchMarketInfo(ctx context.Context, tokenAddress string) (*MarketInfo, error) {
-	// TODO: Implement actual DEX API call
-	return &MarketInfo{
-		Address:     tokenAddress,
-		LastPrice:   100,
-		BaseVolume:  1000000,
-		QuoteVolume: 1000000,
-		Timestamp:   time.Now(),
-	}, nil
+// get performs a GET request
+func (c *BaseClient) get(ctx context.Context, endpoint string) (*http.Response, error) {
+	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	return c.doRequest(req)
 }
 
-// GetOrderbook gets the orderbook for a token
-func (c *DexClient) GetOrderbook(ctx context.Context, tokenAddress string) (*Orderbook, error) {
-	// TODO: Implement actual DEX API call
-	return &Orderbook{
-		Bids: []OrderbookEntry{
-			{Price: 99, Amount: 1},
-			{Price: 98, Amount: 2},
-		},
-		Asks: []OrderbookEntry{
-			{Price: 101, Amount: 1},
-			{Price: 102, Amount: 2},
-		},
-	}, nil
+// post performs a POST request
+func (c *BaseClient) post(ctx context.Context, endpoint string, body interface{}) (*http.Response, error) {
+	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	return c.doRequest(req)
 }
 
-// GetQuote gets a quote for a token swap
-func (c *DexClient) GetQuote(ctx context.Context, inputAmount float64, inputToken, outputToken string) (*QuoteResponse, error) {
-	// TODO: Implement actual DEX API call
-	return &QuoteResponse{
-		InputAmount:  inputAmount,
-		OutputAmount: inputAmount * 0.99, // 1% slippage
-		Price:       0.99,
-		PriceImpact: 0.01,
-		Fee:         inputAmount * 0.003, // 0.3% fee
-	}, nil
-}
-
-// GetPoolInfo gets information about a liquidity pool
-func (c *DexClient) GetPoolInfo(ctx context.Context, poolAddress string) (*PoolInfo, error) {
-	// TODO: Implement actual DEX API call
-	return &PoolInfo{
-		Address:     poolAddress,
-		Token0:      "token0",
-		Token1:      "token1",
-		Reserve0:    1000000,
-		Reserve1:    1000000,
-		TotalSupply: 1000000,
-		SwapFee:     0.003,
-		ProtocolFee: 0.001,
-		LPFee:       0.002,
-		TVL:         2000000,
-		Volume24h:   1000000,
-		APR:         0.1,
-		PriceImpact: 0.01,
-		Utilization: 0.5,
-		Volatility:  0.2,
-		Correlation: 0.8,
-		LastUpdated: time.Now(),
-	}, nil
-}
-
-// GetTokenInfo gets information about a token
-func (c *DexClient) GetTokenInfo(ctx context.Context, tokenAddress string) (*TokenInfo, error) {
-	// TODO: Implement actual DEX API call
-	return &TokenInfo{
-		Address:     tokenAddress,
-		Symbol:      "TOKEN",
-		Name:        "Token",
-		Decimals:    18,
-		TotalSupply: 1000000,
-	}, nil
+// delete performs a DELETE request
+func (c *BaseClient) delete(ctx context.Context, endpoint string) (*http.Response, error) {
+	url := fmt.Sprintf("%s%s", c.baseURL, endpoint)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	return c.doRequest(req)
 }

@@ -5,86 +5,102 @@ import (
 	"time"
 
 	"solmeme-trader/models"
-	"solmeme-trader/monitoring"
 )
 
-// Repository defines database operations
+// Repository defines the interface for database operations
 type Repository interface {
-	// Market data operations
-	SaveMarketData(ctx context.Context, data *models.MarketData) error
-	GetMarketData(ctx context.Context, tokenAddress string) (*models.MarketData, error)
-	GetMarketDataHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.MarketData, error)
-	GetLatestMarketData(ctx context.Context, tokenAddress string) (*models.MarketData, error)
+	// Trade operations
+	SaveTrade(ctx context.Context, trade *models.Trade) error
+	GetTradeByID(ctx context.Context, id string) (*models.Trade, error)
+	ListTrades(ctx context.Context, filter *models.TradeFilter) ([]*models.Trade, error)
+	UpdateTradeStatus(ctx context.Context, id string, status models.TradeStatus) error
+	UpdateTrade(ctx context.Context, trade *models.Trade) error
+	GetTradeStats(ctx context.Context, filter *models.TradeFilter) (*models.TradeStats, error)
 
 	// Position operations
 	SavePosition(ctx context.Context, position *models.Position) error
+	GetPositionByID(ctx context.Context, id string) (*models.Position, error)
+	ListPositions(ctx context.Context, filter *models.PositionFilter) ([]*models.Position, error)
 	UpdatePosition(ctx context.Context, position *models.Position) error
-	GetPosition(ctx context.Context, id string) (*models.Position, error)
 	GetOpenPositions(ctx context.Context) ([]*models.Position, error)
-	GetPositionsByToken(ctx context.Context, tokenAddress string) ([]*models.Position, error)
-	GetPositionHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.Position, error)
+	ClosePosition(ctx context.Context, id string, closePrice float64) error
+	GetPositionStats(ctx context.Context, filter *models.PositionFilter) (*models.PositionStats, error)
 
-	// Trade operations
-	SaveTrade(ctx context.Context, trade *models.Trade) error
-	UpdateTrade(ctx context.Context, trade *models.Trade) error
-	UpdateTradeStatus(ctx context.Context, tradeID string, status string, reason *string) error
-	GetTrade(ctx context.Context, id string) (*models.Trade, error)
-	GetTradesByToken(ctx context.Context, tokenAddress string) ([]*models.Trade, error)
-	GetTradeHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.Trade, error)
-	GetTradeStats(ctx context.Context, tokenAddress string) (int, int, float64, error)
+	// Market data operations
+	SaveMarketData(ctx context.Context, data *models.MarketData) error
+	GetLatestMarketData(ctx context.Context, tokenAddress string) (*models.MarketData, error)
+	GetHistoricalMarketData(ctx context.Context, tokenAddress string, limit int) ([]*models.MarketData, error)
+	GetMarketStats(ctx context.Context, tokenAddress string) (*models.MarketStats, error)
+	GetTechnicalIndicators(ctx context.Context, tokenAddress string) (*models.TechnicalIndicators, error)
+	SaveAnalysisResult(ctx context.Context, result *models.AnalysisResult) error
+	GetLatestAnalysis(ctx context.Context, tokenAddress string) (*models.AnalysisResult, error)
 
-	// Stats operations
+	// Daily stats operations
 	SaveDailyStats(ctx context.Context, stats *models.DailyStats) error
 	GetDailyStats(ctx context.Context, date time.Time) (*models.DailyStats, error)
-	GetDailyStatsRange(ctx context.Context, start, end time.Time) ([]*models.DailyStats, error)
-	CalculateCurrentProfit(ctx context.Context, tokenAddress string) (float64, error)
+	GetDailyStatsRange(ctx context.Context, startDate, endDate time.Time) ([]*models.DailyStats, error)
 
-	// Analysis operations
-	SaveAnalysisResult(ctx context.Context, result *models.AnalysisResult) error
-	GetAnalysisResult(ctx context.Context, tokenAddress string) (*models.AnalysisResult, error)
-	GetAnalysisHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.AnalysisResult, error)
-
-	// Technical indicators
-	SaveTechnicalIndicators(ctx context.Context, tokenAddress string, indicators *models.TechnicalIndicators) error
-	GetTechnicalIndicators(ctx context.Context, tokenAddress string) (*models.TechnicalIndicators, error)
-	GetIndicatorsHistory(ctx context.Context, tokenAddress string, start, end time.Time) ([]*models.TechnicalIndicators, error)
-
-	// Monitoring operations
-	SaveEvent(ctx context.Context, event *monitoring.Event) error
-	GetEvents(ctx context.Context, eventType string, start, end time.Time) ([]*monitoring.Event, error)
-	GetEventsByToken(ctx context.Context, tokenAddress string, start, end time.Time) ([]*monitoring.Event, error)
-
-	// Utility operations
+	// Health check
 	Ping(ctx context.Context) error
-	Close() error
 }
 
-// Options defines repository configuration options
+// Options represents repository configuration options
 type Options struct {
-	URI             string        `json:"uri"`
-	Database        string        `json:"database"`
-	ConnectTimeout  time.Duration `json:"connect_timeout"`
-	QueryTimeout    time.Duration `json:"query_timeout"`
-	MaxConnections  int           `json:"max_connections"`
-	MinConnections  int           `json:"min_connections"`
-	MaxIdleTime     time.Duration `json:"max_idle_time"`
-	RetryAttempts   int           `json:"retry_attempts"`
-	RetryInterval   time.Duration `json:"retry_interval"`
-	ConnectRetries  int          `json:"connect_retries"`
-	ConnectInterval time.Duration `json:"connect_interval"`
+	URI            string
+	Database       string
+	Username       string
+	Password       string
+	Timeout        time.Duration
+	ConnectTimeout time.Duration
+	MaxConnections uint64
+	MinConnections uint64
 }
 
 // DefaultOptions returns default repository options
 func DefaultOptions() Options {
 	return Options{
-		ConnectTimeout:  10 * time.Second,
-		QueryTimeout:    30 * time.Second,
-		MaxConnections:  100,
-		MinConnections:  10,
-		MaxIdleTime:     5 * time.Minute,
-		RetryAttempts:   3,
-		RetryInterval:   1 * time.Second,
-		ConnectRetries:  5,
-		ConnectInterval: 5 * time.Second,
+		URI:            "mongodb://localhost:27017",
+		Database:       "solmeme_trader",
+		Timeout:        10 * time.Second,
+		ConnectTimeout: 5 * time.Second,
+		MaxConnections: 100,
+		MinConnections: 10,
 	}
 }
+
+// Constants for position status
+const (
+	PositionStatusOpen       = "open"
+	PositionStatusClosed     = "closed"
+	PositionStatusLiquidated = "liquidated"
+)
+
+// Constants for trade status
+const (
+	TradeStatusPending   = "pending"
+	TradeStatusExecuted  = "executed"
+	TradeStatusFailed    = "failed"
+	TradeStatusCancelled = "cancelled"
+)
+
+// Constants for trade side
+const (
+	TradeSideBuy  = "buy"
+	TradeSideSell = "sell"
+)
+
+// Constants for trade type
+const (
+	TradeTypeMarket = "market"
+	TradeTypeLimit  = "limit"
+	TradeTypeStop   = "stop"
+)
+
+// Constants for risk management
+const (
+	DefaultLiquidationThreshold = 0.5  // 50% loss
+	DefaultLeverageLimit        = 10.0 // 10x max leverage
+	DefaultPositionSizeLimit    = 0.2  // 20% of portfolio
+	DefaultStopLossLimit        = 0.1  // 10% loss
+	DefaultTakeProfitLimit      = 0.2  // 20% gain
+)
