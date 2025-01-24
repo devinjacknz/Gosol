@@ -172,13 +172,15 @@ func (r *MongoRepository) GetMarketStats(ctx context.Context, tokenAddress strin
 // GetTechnicalIndicators retrieves technical indicators for a token
 func (r *MongoRepository) GetTechnicalIndicators(ctx context.Context, tokenAddress string) (*models.TechnicalIndicators, error) {
 	var indicators models.TechnicalIndicators
-	err := r.marketData.FindOne(ctx, bson.M{
-		"token_address": tokenAddress,
-	}).Decode(&indicators)
-	if err != nil {
-		return nil, err
+	err := r.analysis.FindOne(
+		ctx,
+		bson.M{"token_address": tokenAddress},
+		options.FindOne().SetSort(bson.M{"timestamp": -1}),
+	).Decode(&indicators)
+	if err == mongo.ErrNoDocuments {
+		return &models.TechnicalIndicators{}, nil
 	}
-	return &indicators, nil
+	return &indicators, err
 }
 
 // SaveAnalysisResult saves market analysis results
