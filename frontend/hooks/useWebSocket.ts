@@ -1,73 +1,85 @@
-import { useEffect } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { WSMessageType } from '../types';
-import { useTradingStore } from '../store';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+interface WebSocketHookResult<T> {
+  data: T | null;
+  isConnected: boolean;
+  error: Error | null;
+  send: (message: any) => void;
+  ws: WebSocket | null;
+}
 
-export function useWebSocket() {
-  const {
-    setMarketData,
-    setAccountInfo,
-    addTrade,
-    addRiskAlert,
-    setSystemStatus
-  } = useTradingStore();
+export function useWebSocket<T = any>(url: string): WebSocketHookResult<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+
+  const connect = useCallback(() => {
+    try {
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        setIsConnected(true);
+        setError(null);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          setData(parsed);
+        } catch (e) {
+          setError(new Error('Failed to parse message'));
+        }
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        // 尝试重连
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, 5000);
+      };
+
+      ws.onerror = (event) => {
+        setError(new Error('WebSocket error'));
+        ws.close();
+      };
+
+      wsRef.current = ws;
+    } catch (e) {
+      setError(e as Error);
+    }
+  }, [url]);
 
   useEffect(() => {
-    const socket: Socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-    });
-
-    socket.on('connect', () => {
-      console.log('WebSocket connected');
-    });
-
-    socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
-    });
-
-    socket.on('message', (message: WSMessageType) => {
-      try {
-        switch (message.type) {
-          case 'market':
-            setMarketData(message.data.symbol, message.data);
-            break;
-          case 'account':
-            setAccountInfo(message.data);
-            break;
-          case 'trade':
-            addTrade(message.data);
-            break;
-          case 'risk':
-            addRiskAlert(message.data);
-            break;
-          case 'system':
-            setSystemStatus(message.data);
-            break;
-          default:
-            console.warn('Unknown message type:', message);
-        }
-      } catch (error) {
-        console.error('Error processing WebSocket message:', error);
-      }
-    });
-
-    // 心跳检测
-    const heartbeat = setInterval(() => {
-      if (socket.connected) {
-        socket.emit('ping');
-      }
-    }, 30000);
+    connect();
 
     return () => {
-      clearInterval(heartbeat);
-      socket.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
     };
+  }, [connect]);
+
+  const send = useCallback((message: any) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message));
+    } else {
+      setError(new Error('WebSocket is not connected'));
+    }
   }, []);
+
+  return {
+    data,
+    isConnected,
+    error,
+    send,
+    ws: wsRef.current,
+  };
 }
 
 export default useWebSocket; 

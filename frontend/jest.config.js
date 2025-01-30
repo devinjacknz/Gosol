@@ -1,12 +1,11 @@
-import type { Config } from 'jest';
-import nextJest from 'next/jest';
+const nextJest = require('next/jest');
 
 const createJestConfig = nextJest({
   // 指向Next.js应用的路径
   dir: './',
 });
 
-const config: Config = {
+const config = {
   // 添加更多自定义配置
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testEnvironment: 'jest-environment-jsdom',
@@ -40,4 +39,4 @@ const config: Config = {
   ],
 };
 
-export default createJestConfig(config); 
+module.exports = createJestConfig(config); 
