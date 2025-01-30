@@ -1,182 +1,413 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from technical_analysis import TechnicalAnalysis
 from streaming_indicators import StreamingRSI, StreamingMACD, StreamingBB
-from typing import List, Dict, Tuple
+
+@dataclass
+class MarketState:
+    trend: str  # 'uptrend', 'downtrend', 'sideways'
+    strength: float  # 0 to 1
+    volatility: float
+    volume_profile: str  # 'increasing', 'decreasing', 'stable'
+    support_levels: List[float]
+    resistance_levels: List[float]
+    key_levels: List[float]
+    timestamp: datetime
+    indicators: Dict[str, float]  # 存储实时指标值
+    signals: Dict[str, str]  # 存储交易信号
 
 class MarketAnalyzer:
     def __init__(self):
-        self.rsi = StreamingRSI(period=14)
-        self.macd = StreamingMACD(fast=12, slow=26, signal=9)
-        self.bb = StreamingBB(period=20, std_dev=2)
+        self.ta = TechnicalAnalysis()
+        self.last_state: Optional[MarketState] = None
         
-    def calculate_indicators(self, price_data: List[float], volume_data: List[float]) -> Dict:
-        """Calculate technical indicators using streaming-indicators and pandas-ta"""
-        df = pd.DataFrame({
-            'price': price_data,
-            'volume': volume_data
-        })
+        # 初始化流式指标
+        self.streaming_rsi = StreamingRSI()
+        self.streaming_macd = StreamingMACD()
+        self.streaming_bb = StreamingBB()
         
-        # Streaming indicators
-        rsi_values = [self.rsi.add(price) for price in price_data]
-        macd_values = [self.macd.add(price) for price in price_data]
-        bb_values = [self.bb.add(price) for price in price_data]
-        
-        # Pandas-ta indicators
-        df.ta.ema(length=20, append=True)
-        df.ta.vwap(append=True)
-        df.ta.volatility(append=True)
-        
-        latest_data = {
-            'rsi': rsi_values[-1] if rsi_values[-1] is not None else 50,
-            'macd': macd_values[-1].macd if macd_values[-1] is not None else 0,
-            'macd_signal': macd_values[-1].signal if macd_values[-1] is not None else 0,
-            'bb_upper': bb_values[-1].upper if bb_values[-1] is not None else price_data[-1],
-            'bb_lower': bb_values[-1].lower if bb_values[-1] is not None else price_data[-1],
-            'ema': df['EMA_20'].iloc[-1] if not pd.isna(df['EMA_20'].iloc[-1]) else price_data[-1],
-            'vwap': df['VWAP'].iloc[-1] if not pd.isna(df['VWAP'].iloc[-1]) else price_data[-1],
-            'volatility': df['VOLATILITY_20'].iloc[-1] if not pd.isna(df['VOLATILITY_20'].iloc[-1]) else 0
-        }
-        
-        return latest_data
+        # 缓存最近的价格数据
+        self.price_cache = []
+        self.max_cache_size = 1000
     
-    def analyze_market_conditions(self, indicators: Dict, 
-                                price_data: List[float], 
-                                volume_data: List[float]) -> Dict:
-        """Analyze market conditions based on technical indicators"""
-        current_price = price_data[-1]
-        avg_volume = np.mean(volume_data[-24:]) if len(volume_data) >= 24 else volume_data[-1]
+    def update_price(self, price: float, volume: float, timestamp: datetime) -> None:
+        """更新价格数据并维护缓存"""
+        self.price_cache.append({
+            'price': price,
+            'volume': volume,
+            'timestamp': timestamp
+        })
+        if len(self.price_cache) > self.max_cache_size:
+            self.price_cache.pop(0)
+    
+    def analyze_market(self, data: pd.DataFrame, timeframe: str = '1h') -> MarketState:
+        """使用多个指标和技术分析市场状态"""
         
-        # Price trend analysis
-        price_trend = self._calculate_trend(price_data[-20:])
-        volume_trend = self._calculate_trend(volume_data[-20:])
+        # 趋势分析
+        trend, strength = self._analyze_trend(data)
         
-        # Volatility analysis
-        volatility = indicators['volatility']
-        volatility_risk = self._assess_volatility_risk(volatility)
+        # 波动性分析
+        volatility = self._analyze_volatility(data)
         
-        # Support and resistance
-        support, resistance = self._calculate_support_resistance(price_data)
+        # 成交量分析
+        volume_profile = self._analyze_volume(data)
         
-        # Market strength indicators
-        rsi_signal = self._interpret_rsi(indicators['rsi'])
-        macd_signal = self._interpret_macd(indicators['macd'], indicators['macd_signal'])
-        bb_signal = self._interpret_bollinger_bands(current_price, 
-                                                  indicators['bb_upper'], 
-                                                  indicators['bb_lower'])
+        # 支撑/阻力位
+        support_resistance = self.ta.support_resistance(data)
+        support_levels = support_resistance['support']
+        resistance_levels = support_resistance['resistance']
+        
+        # 关键价格水平
+        key_levels = self._identify_key_levels(data)
+        
+        # 计算实时指标
+        indicators = self._calculate_real_time_indicators(data.iloc[-1])
+        
+        # 生成交易信号
+        signals = self._generate_signals(data.iloc[-1], indicators)
+        
+        # 创建市场状态
+        state = MarketState(
+            trend=trend,
+            strength=strength,
+            volatility=volatility,
+            volume_profile=volume_profile,
+            support_levels=support_levels,
+            resistance_levels=resistance_levels,
+            key_levels=key_levels,
+            timestamp=datetime.now(),
+            indicators=indicators,
+            signals=signals
+        )
+        
+        self.last_state = state
+        return state
+    
+    def _analyze_trend(self, data: pd.DataFrame) -> Tuple[str, float]:
+        """分析市场趋势和强度"""
+        
+        # 使用流式指标计算趋势
+        macd_val, signal_val = self.streaming_macd.add(data['price'].iloc[-1])
+        rsi_val = self.streaming_rsi.add(data['price'].iloc[-1])
+        bb_upper, bb_middle, bb_lower = self.streaming_bb.add(data['price'].iloc[-1])
+        
+        # 趋势判断
+        trend = 'sideways'
+        if macd_val > signal_val and data['price'].iloc[-1] > bb_middle:
+            trend = 'uptrend'
+        elif macd_val < signal_val and data['price'].iloc[-1] < bb_middle:
+            trend = 'downtrend'
+        
+        # 趋势强度计算
+        strength = min(abs(macd_val - signal_val) / abs(signal_val), 1.0) if signal_val != 0 else 0.5
+        
+        return trend, strength
+    
+    def _analyze_volatility(self, data: pd.DataFrame) -> float:
+        """分析市场波动性"""
+        # 使用布林带宽度作为波动性指标
+        _, bb_middle, _ = self.streaming_bb.add(data['price'].iloc[-1])
+        bb_width = (bb_upper - bb_lower) / bb_middle if bb_middle != 0 else 0
+        
+        # 标准化波动性到0-1范围
+        return min(bb_width, 1.0)
+    
+    def _analyze_volume(self, data: pd.DataFrame) -> str:
+        """分析成交量趋势"""
+        recent_volume = data['volume'].tail(20)
+        avg_volume = recent_volume.mean()
+        current_volume = recent_volume.iloc[-1]
+        
+        if current_volume > avg_volume * 1.2:
+            return 'increasing'
+        elif current_volume < avg_volume * 0.8:
+            return 'decreasing'
+        else:
+            return 'stable'
+    
+    def _identify_key_levels(self, data: pd.DataFrame) -> List[float]:
+        """识别关键价格水平"""
+        pivot_points = self.ta.pivot_points(data)
+        return [
+            pivot_points['pivot'],
+            pivot_points['r1'],
+            pivot_points['r2'],
+            pivot_points['s1'],
+            pivot_points['s2']
+        ]
+    
+    def _calculate_real_time_indicators(self, latest_data: pd.Series) -> Dict[str, float]:
+        """计算实时技术指标"""
+        return {
+            'rsi': self.streaming_rsi.get_value(),
+            'macd': self.streaming_macd.get_value()[0],
+            'macd_signal': self.streaming_macd.get_value()[1],
+            'bb_upper': self.streaming_bb.get_value()[0],
+            'bb_middle': self.streaming_bb.get_value()[1],
+            'bb_lower': self.streaming_bb.get_value()[2]
+        }
+    
+    def _generate_signals(self, latest_data: pd.Series, indicators: Dict[str, float]) -> Dict[str, str]:
+        """生成交易信号"""
+        signals = {}
+        
+        # RSI信号
+        rsi = indicators['rsi']
+        if rsi > 70:
+            signals['rsi'] = 'overbought'
+        elif rsi < 30:
+            signals['rsi'] = 'oversold'
+        else:
+            signals['rsi'] = 'neutral'
+        
+        # MACD信号
+        macd = indicators['macd']
+        macd_signal = indicators['macd_signal']
+        if macd > macd_signal:
+            signals['macd'] = 'bullish'
+        else:
+            signals['macd'] = 'bearish'
+        
+        # 布林带信号
+        price = latest_data['price']
+        bb_upper = indicators['bb_upper']
+        bb_lower = indicators['bb_lower']
+        if price > bb_upper:
+            signals['bollinger'] = 'overbought'
+        elif price < bb_lower:
+            signals['bollinger'] = 'oversold'
+        else:
+            signals['bollinger'] = 'neutral'
+        
+        return signals
+    
+    def get_market_summary(self) -> Dict[str, any]:
+        """获取市场概况"""
+        if not self.last_state:
+            return {}
         
         return {
-            'trend': price_trend,
-            'volume_trend': volume_trend,
-            'volatility': volatility,
-            'volatility_risk': volatility_risk,
-            'support': support,
-            'resistance': resistance,
-            'rsi_signal': rsi_signal,
-            'macd_signal': macd_signal,
-            'bb_signal': bb_signal,
-            'overall_sentiment': self._calculate_overall_sentiment(
-                price_trend, volume_trend, rsi_signal, macd_signal, bb_signal
-            )
+            'trend': self.last_state.trend,
+            'strength': self.last_state.strength,
+            'volatility': self.last_state.volatility,
+            'volume_profile': self.last_state.volume_profile,
+            'indicators': self.last_state.indicators,
+            'signals': self.last_state.signals,
+            'timestamp': self.last_state.timestamp
         }
     
-    def _calculate_trend(self, data: List[float]) -> float:
-        """Calculate trend strength and direction"""
-        if len(data) < 2:
+    def get_market_context(self, data: pd.DataFrame) -> Dict:
+        """Get comprehensive market context"""
+        
+        # Analyze current market state
+        current_state = self.analyze_market(data)
+        
+        # Calculate additional metrics
+        rsi = self.ta.rsi(data)
+        bb = self.ta.bollinger_bands(data)
+        mfi = self.ta.mfi(data)
+        
+        context = {
+            'state': {
+                'trend': current_state.trend,
+                'strength': current_state.strength,
+                'volatility': current_state.volatility,
+                'volume_profile': current_state.volume_profile
+            },
+            'indicators': {
+                'rsi': rsi.iloc[-1],
+                'bollinger_width': (bb['upper'].iloc[-1] - bb['lower'].iloc[-1]) / bb['middle'].iloc[-1],
+                'mfi': mfi.iloc[-1]
+            },
+            'levels': {
+                'support': current_state.support_levels,
+                'resistance': current_state.resistance_levels,
+                'key_levels': current_state.key_levels
+            },
+            'risk_metrics': self._calculate_risk_metrics(data)
+        }
+        
+        return context
+    
+    def _calculate_risk_metrics(self, data: pd.DataFrame) -> Dict:
+        """Calculate various risk metrics"""
+        
+        returns = data['price'].pct_change().dropna()
+        
+        metrics = {
+            'volatility': returns.std() * np.sqrt(252),  # Annualized volatility
+            'var_95': np.percentile(returns, 5),  # 95% Value at Risk
+            'max_drawdown': self._calculate_max_drawdown(data['price']),
+            'sharpe_ratio': self._calculate_sharpe_ratio(returns),
+            'sortino_ratio': self._calculate_sortino_ratio(returns)
+        }
+        
+        return metrics
+    
+    def _calculate_max_drawdown(self, prices: pd.Series) -> float:
+        """Calculate maximum drawdown"""
+        peak = prices.expanding(min_periods=1).max()
+        drawdown = (prices - peak) / peak
+        return abs(drawdown.min())
+    
+    def _calculate_sharpe_ratio(self, returns: pd.Series, risk_free_rate: float = 0.02) -> float:
+        """Calculate Sharpe ratio"""
+        excess_returns = returns - risk_free_rate/252
+        if excess_returns.std() == 0:
             return 0
-        return (data[-1] / data[0] - 1) * 100
+        return np.sqrt(252) * excess_returns.mean() / excess_returns.std()
     
-    def _assess_volatility_risk(self, volatility: float) -> str:
-        """Assess risk level based on volatility"""
-        if volatility > 0.1:
-            return "high"
-        elif volatility > 0.05:
-            return "medium"
-        return "low"
+    def _calculate_sortino_ratio(self, returns: pd.Series, risk_free_rate: float = 0.02) -> float:
+        """Calculate Sortino ratio"""
+        excess_returns = returns - risk_free_rate/252
+        downside_returns = excess_returns[excess_returns < 0]
+        if len(downside_returns) == 0 or downside_returns.std() == 0:
+            return 0
+        return np.sqrt(252) * excess_returns.mean() / downside_returns.std()
     
-    def _calculate_support_resistance(self, price_data: List[float]) -> Tuple[float, float]:
-        """Calculate support and resistance levels"""
-        if len(price_data) < 20:
-            return price_data[-1] * 0.95, price_data[-1] * 1.05
+    def detect_market_regime(self, data: pd.DataFrame) -> str:
+        """Detect current market regime"""
         
-        window = price_data[-20:]
-        support = min(window)
-        resistance = max(window)
-        return support, resistance
-    
-    def _interpret_rsi(self, rsi: float) -> str:
-        """Interpret RSI signal"""
-        if rsi > 70:
-            return "overbought"
-        elif rsi < 30:
-            return "oversold"
-        return "neutral"
-    
-    def _interpret_macd(self, macd: float, signal: float) -> str:
-        """Interpret MACD signal"""
-        if macd > signal:
-            return "bullish"
-        elif macd < signal:
-            return "bearish"
-        return "neutral"
-    
-    def _interpret_bollinger_bands(self, price: float, upper: float, lower: float) -> str:
-        """Interpret Bollinger Bands signal"""
-        if price > upper:
-            return "overbought"
-        elif price < lower:
-            return "oversold"
-        return "neutral"
-    
-    def _calculate_overall_sentiment(self, price_trend: float, volume_trend: float,
-                                   rsi_signal: str, macd_signal: str, bb_signal: str) -> str:
-        """Calculate overall market sentiment"""
-        signals = {
-            'bullish': 0,
-            'bearish': 0,
-            'neutral': 0
-        }
+        # Calculate indicators
+        volatility = self._analyze_volatility(data)
+        trend, strength = self._analyze_trend(data)
+        volume_profile = self._analyze_volume(data)
         
-        # Price trend
-        if price_trend > 1:
-            signals['bullish'] += 1
-        elif price_trend < -1:
-            signals['bearish'] += 1
+        # Define regimes
+        if trend == 'uptrend' and strength > 0.7:
+            if volatility < 0.3:
+                return 'strong_uptrend'
+            else:
+                return 'volatile_uptrend'
+        elif trend == 'downtrend' and strength > 0.7:
+            if volatility < 0.3:
+                return 'strong_downtrend'
+            else:
+                return 'volatile_downtrend'
+        elif volatility > 0.7:
+            return 'high_volatility'
+        elif volume_profile == 'decreasing' and volatility < 0.3:
+            return 'low_volatility_consolidation'
         else:
-            signals['neutral'] += 1
+            return 'ranging'
+    
+    def get_trading_opportunities(self, data: pd.DataFrame) -> List[Dict]:
+        """Identify potential trading opportunities"""
+        
+        opportunities = []
+        current_price = data['price'].iloc[-1]
+        
+        # Get market context
+        context = self.get_market_context(data)
+        regime = self.detect_market_regime(data)
+        
+        # Analyze price action near key levels
+        for level in context['levels']['key_levels']:
+            distance = abs(current_price - level) / current_price
             
-        # Volume trend
-        if volume_trend > 1:
-            signals['bullish'] += 1
-        elif volume_trend < -1:
-            signals['bearish'] += 1
-        else:
-            signals['neutral'] += 1
-            
-        # RSI
-        if rsi_signal == "oversold":
-            signals['bullish'] += 1
-        elif rsi_signal == "overbought":
-            signals['bearish'] += 1
-        else:
-            signals['neutral'] += 1
-            
-        # MACD
-        if macd_signal == "bullish":
-            signals['bullish'] += 1
-        elif macd_signal == "bearish":
-            signals['bearish'] += 1
-        else:
-            signals['neutral'] += 1
-            
-        # Bollinger Bands
-        if bb_signal == "oversold":
-            signals['bullish'] += 1
-        elif bb_signal == "overbought":
-            signals['bearish'] += 1
-        else:
-            signals['neutral'] += 1
-            
-        # Determine overall sentiment
-        max_signal = max(signals.items(), key=lambda x: x[1])
-        return max_signal[0]
+            if distance < 0.01:  # Within 1% of key level
+                opportunity = {
+                    'type': 'key_level_test',
+                    'price': current_price,
+                    'level': level,
+                    'regime': regime,
+                    'context': context['state'],
+                    'confidence': self._calculate_opportunity_confidence(data, level)
+                }
+                opportunities.append(opportunity)
+        
+        # Analyze indicator signals
+        signals = self._analyze_indicator_signals(data)
+        for signal in signals:
+            opportunity = {
+                'type': 'indicator_signal',
+                'price': current_price,
+                'signal': signal,
+                'regime': regime,
+                'context': context['state'],
+                'confidence': signal['confidence']
+            }
+            opportunities.append(opportunity)
+        
+        return opportunities
+    
+    def _analyze_indicator_signals(self, data: pd.DataFrame) -> List[Dict]:
+        """Analyze various indicators for trading signals"""
+        
+        signals = []
+        
+        # RSI signals
+        rsi = self.ta.rsi(data)
+        if rsi.iloc[-1] < 30:
+            signals.append({
+                'indicator': 'RSI',
+                'type': 'oversold',
+                'value': rsi.iloc[-1],
+                'confidence': 0.7
+            })
+        elif rsi.iloc[-1] > 70:
+            signals.append({
+                'indicator': 'RSI',
+                'type': 'overbought',
+                'value': rsi.iloc[-1],
+                'confidence': 0.7
+            })
+        
+        # MACD signals
+        macd = self.ta.macd(data)
+        if (macd['histogram'].iloc[-2] < 0 and macd['histogram'].iloc[-1] > 0):
+            signals.append({
+                'indicator': 'MACD',
+                'type': 'bullish_cross',
+                'value': macd['histogram'].iloc[-1],
+                'confidence': 0.6
+            })
+        elif (macd['histogram'].iloc[-2] > 0 and macd['histogram'].iloc[-1] < 0):
+            signals.append({
+                'indicator': 'MACD',
+                'type': 'bearish_cross',
+                'value': macd['histogram'].iloc[-1],
+                'confidence': 0.6
+            })
+        
+        return signals
+    
+    def _calculate_opportunity_confidence(self, data: pd.DataFrame, level: float) -> float:
+        """Calculate confidence score for a trading opportunity"""
+        
+        # Base confidence on multiple factors
+        confidence = 0.5  # Start with neutral confidence
+        
+        # Factor 1: Historical significance of the level
+        touches = self._count_level_touches(data, level)
+        confidence += min(touches * 0.1, 0.3)  # Max 0.3 from historical significance
+        
+        # Factor 2: Current market conditions
+        regime = self.detect_market_regime(data)
+        if regime in ['strong_uptrend', 'strong_downtrend']:
+            confidence += 0.1
+        elif regime == 'high_volatility':
+            confidence -= 0.2
+        
+        # Factor 3: Volume confirmation
+        volume_profile = self._analyze_volume(data)
+        if volume_profile == 'increasing':
+            confidence += 0.1
+        elif volume_profile == 'decreasing':
+            confidence -= 0.1
+        
+        return min(max(confidence, 0.0), 1.0)
+    
+    def _count_level_touches(self, data: pd.DataFrame, level: float) -> int:
+        """Count how many times price has touched a level"""
+        threshold = level * 0.001  # 0.1% threshold
+        touches = 0
+        
+        for price in data['price']:
+            if abs(price - level) <= threshold:
+                touches += 1
+        
+        return touches
