@@ -1,0 +1,294 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>batch: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/leonzhao/trading-system/backend/trading/analysis/batch/historical.go (0.0%)</option>
+				
+				<option value="file1">github.com/leonzhao/trading-system/backend/trading/analysis/batch/macd.go (93.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package batch
+
+import (
+        "bytes"
+        "encoding/json"
+        "math"
+        "os"
+        "os/exec"
+        "path/filepath"
+        "syscall"
+)
+
+const (
+        ErrDataTooShort = 1001
+        ErrPythonExec   = 1002
+        ErrJSONParse    = 1003
+)
+
+type HistoricalConverter struct {
+        PythonPath string
+        ScriptPath string
+}
+
+func (c *HistoricalConverter) ConvertToBatch(data []float64) (map[string][]float64, error) <span class="cov0" title="0">{
+        if len(data) &lt; 26 </span><span class="cov0" title="0">{
+                return map[string][]float64{"error": {ErrDataTooShort}}, nil
+        }</span>
+
+        <span class="cov0" title="0">absPath, err := filepath.Abs(c.ScriptPath)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">input, _ := json.Marshal(data)
+        // 添加环境变量并设置新的PATH
+        cmd := exec.Command(c.PythonPath, absPath, string(input))
+        cmd.Env = append(os.Environ(),
+                "PYTHONPATH="+filepath.Dir(absPath),
+        )
+        
+        var stderr bytes.Buffer
+        cmd.Stderr = &amp;stderr
+        
+        output, err := cmd.Output()
+        if err != nil </span><span class="cov0" title="0">{
+                exitCode := 0
+                if exiterr, ok := err.(*exec.ExitError); ok </span><span class="cov0" title="0">{
+                        if status, ok := exiterr.Sys().(syscall.WaitStatus); ok </span><span class="cov0" title="0">{
+                                exitCode = status.ExitStatus()
+                        }</span>
+                }
+                <span class="cov0" title="0">return map[string][]float64{
+                        "error": {ErrPythonExec, float64(exitCode)},
+                }, nil</span>
+        }
+
+        // 自定义JSON解析处理NaN值
+        <span class="cov0" title="0">var rawResult map[string][]interface{}
+        if err := json.Unmarshal(output, &amp;rawResult); err != nil </span><span class="cov0" title="0">{
+                return map[string][]float64{
+                        "error": {ErrJSONParse},
+                }, nil
+        }</span>
+
+        <span class="cov0" title="0">finalResult := make(map[string][]float64)
+        for key, values := range rawResult </span><span class="cov0" title="0">{
+                var validValues []float64
+                for _, v := range values </span><span class="cov0" title="0">{
+                        if num, ok := v.(float64); ok &amp;&amp; !math.IsNaN(num) </span><span class="cov0" title="0">{
+                                validValues = append(validValues, num)
+                        }</span>
+                }
+                // 至少保留最后一个有效值
+                <span class="cov0" title="0">if len(validValues) &gt; 0 </span><span class="cov0" title="0">{
+                        // 过滤前25个初始化值（slow周期26-1）
+                        startIdx := 25
+                        if len(validValues) &gt; startIdx </span><span class="cov0" title="0">{
+                                finalResult[key] = validValues[startIdx:]
+                        }</span> else<span class="cov0" title="0"> {
+                                finalResult[key] = validValues
+                        }</span>
+                }
+        }
+        
+        <span class="cov0" title="0">return finalResult, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package batch
+
+import "fmt"
+
+type MACDResult struct {
+        MACD   float64
+        Signal float64
+        Hist   float64
+}
+
+// CalculateMACD 实现自主MACD计算逻辑
+func CalculateMACD(prices []float64, fastPeriod, slowPeriod, signalPeriod int) ([]float64, []float64, []float64, error) <span class="cov2" title="3">{
+        macdResults, err := ConvertHistoricalMACD(prices, fastPeriod, slowPeriod, signalPeriod)
+        if err != nil </span><span class="cov1" title="2">{
+                return nil, nil, nil, err
+        }</span>
+        
+        <span class="cov1" title="1">macd := make([]float64, len(macdResults))
+        signal := make([]float64, len(macdResults))
+        hist := make([]float64, len(macdResults))
+        
+        for i, result := range macdResults </span><span class="cov6" title="66">{
+                macd[i] = result.MACD
+                signal[i] = result.Signal 
+                hist[i] = result.Hist
+        }</span>
+        
+        <span class="cov1" title="1">return macd, signal, hist, nil</span>
+}
+
+func ConvertHistoricalMACD(data []float64, fastPeriod, slowPeriod, signalPeriod int) ([]MACDResult, error) <span class="cov3" title="7">{
+        if len(data) == 0 </span><span class="cov1" title="2">{
+                return nil, fmt.Errorf("empty input data")
+        }</span>
+
+        <span class="cov3" title="5">minDataLength := slowPeriod + signalPeriod
+        if len(data) &lt; minDataLength </span><span class="cov1" title="2">{
+                return nil, fmt.Errorf("insufficient data: need at least %d values, got %d", minDataLength, len(data))
+        }</span>
+
+        <span class="cov2" title="3">var results []MACDResult
+        // 使用初始窗口数据计算EMA
+        fastEMA := calculateEMA(data[:fastPeriod], fastPeriod)
+        slowEMA := calculateEMA(data[:slowPeriod], slowPeriod)
+        
+        // 从slowPeriod开始计算MACD值
+        var macdValues []float64
+        for i := slowPeriod; i &lt; len(data); i++ </span><span class="cov7" title="157">{
+                fastEMA = (data[i]-fastEMA)*2.0/float64(fastPeriod+1) + fastEMA
+                slowEMA = (data[i]-slowEMA)*2.0/float64(slowPeriod+1) + slowEMA
+                macdValues = append(macdValues, fastEMA-slowEMA)
+        }</span>
+
+        // 确保有足够的数据计算信号线
+        <span class="cov2" title="3">if len(macdValues) &lt; signalPeriod </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("not enough MACD values for signal line calculation")
+        }</span>
+
+        // 生成最终结果（跳过初始不稳定周期）
+        <span class="cov2" title="3">startIndex := signalPeriod - 1
+        for i := startIndex; i &lt; len(macdValues); i++ </span><span class="cov7" title="133">{
+                currentMACD := macdValues[i]
+                currentSignal := calculateEMA(macdValues[i-signalPeriod+1:i+1], signalPeriod)
+                
+                results = append(results, MACDResult{
+                        MACD:   currentMACD,
+                        Signal: currentSignal,
+                        Hist:   currentMACD - currentSignal,
+                })
+        }</span>
+        
+        <span class="cov2" title="3">return results, nil</span>
+}
+
+func calculateEMA(data []float64, period int) float64 <span class="cov7" title="139">{
+        if len(data) &lt; period </span><span class="cov0" title="0">{
+                return 0
+        }</span>
+        
+        <span class="cov7" title="139">sma := 0.0
+        for _, v := range data[:period] </span><span class="cov10" title="1311">{
+                sma += v
+        }</span>
+        <span class="cov7" title="139">sma /= float64(period)
+        
+        multiplier := 2.0 / (float64(period) + 1)
+        ema := sma
+        for _, v := range data[period:] </span><span class="cov0" title="0">{
+                ema = (v - ema)*multiplier + ema
+        }</span>
+        <span class="cov7" title="139">return ema</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
