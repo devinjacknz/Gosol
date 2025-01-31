@@ -4,10 +4,11 @@ import numpy as np
 from typing import Dict, List, Optional, Union, Callable, Any, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-from websockets.client import WebSocketClientProtocol
+import websockets
 import ccxt.async_support as ccxt
 import asyncio
 import json
+from websockets.client import connect as ws_connect
 import sqlite3
 from pathlib import Path
 import websockets
@@ -56,7 +57,7 @@ class MarketDataService:
         self.perpetual_cache: Dict[str, Dict] = {}
         
         # WebSocket连接
-        self.ws_connections: Dict[str, WebSocketClientProtocol] = {}
+        self.ws_connections: Dict[str, websockets.WebSocketClientProtocol] = {}
         self.ws_subscriptions: Dict[str, List[str]] = {}
         
         # 事件订阅者
@@ -223,7 +224,7 @@ class MarketDataService:
         for symbol in self.config.symbols:
             try:
                 # 创建WebSocket连接
-                ws = await self.exchange.ws.connect()
+                ws = await ws_connect(self.exchange.urls['ws'])
                 self.ws_connections[symbol] = ws
                 
                 # 订阅数据
@@ -417,7 +418,12 @@ class MarketDataService:
                 AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp
             """
-            params: Tuple = (symbol, timeframe, start_time.isoformat() if start_time else None, end_time.isoformat() if end_time else None)
+            params = [
+                symbol,
+                timeframe,
+                start_time.isoformat() if start_time else None,
+                end_time.isoformat() if end_time else None
+            ]
             df = pd.read_sql_query(query, conn, params=params)
             logger.info(f"Retrieved {len(df)} OHLCV records from database for {symbol}")
             return df
@@ -446,7 +452,11 @@ class MarketDataService:
                 AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp
             """
-            params: Tuple = (symbol, start_time.isoformat() if start_time else None, end_time.isoformat() if end_time else None)
+            params = [
+                symbol,
+                start_time.isoformat() if start_time else None,
+                end_time.isoformat() if end_time else None
+            ]
             df = pd.read_sql_query(query, conn, params=params)
             logger.info(f"Retrieved {len(df)} trade records from database for {symbol}")
             return df
@@ -592,4 +602,4 @@ class MarketDataService:
         """获取标记价格"""
         if symbol in self.perpetual_cache:
             return self.perpetual_cache[symbol]['mark_price']
-        return None               
+        return None                   
