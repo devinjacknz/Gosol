@@ -1,9 +1,10 @@
 import logging
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Callable
 from datetime import datetime, timedelta
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import websockets.client
 import ccxt.async_support as ccxt
 import asyncio
 import json
@@ -55,11 +56,11 @@ class MarketDataService:
         self.perpetual_cache: Dict[str, Dict] = {}
         
         # WebSocket连接
-        self.ws_connections: Dict[str, websockets.WebSocketClientProtocol] = {}
+        self.ws_connections: Dict[str, websockets.client.WebSocketClientProtocol] = {}
         self.ws_subscriptions: Dict[str, List[str]] = {}
         
         # 事件订阅者
-        self.subscribers: Dict[str, List[callable]] = {
+        self.subscribers: Dict[str, List[Callable]] = {
             'ohlcv': [],
             'orderbook': [],
             'trades': [],
@@ -240,7 +241,7 @@ class MarketDataService:
             except Exception as e:
                 logger.error(f"Error starting WebSocket for {symbol}: {str(e)}")
     
-    async def _handle_ws_messages(self, symbol: str, ws: websockets.WebSocketClientProtocol):
+    async def _handle_ws_messages(self, symbol: str, ws: websockets.client.WebSocketClientProtocol):
         """处理WebSocket消息"""
         try:
             async for message in ws:
@@ -384,12 +385,12 @@ class MarketDataService:
             except Exception as e:
                 logger.error(f"Error notifying subscriber: {str(e)}")
     
-    def subscribe(self, event_type: str, callback: callable):
+    def subscribe(self, event_type: str, callback: Callable):
         """订阅事件"""
         if event_type in self.subscribers:
             self.subscribers[event_type].append(callback)
     
-    def unsubscribe(self, event_type: str, callback: callable):
+    def unsubscribe(self, event_type: str, callback: Callable):
         """取消订阅"""
         if event_type in self.subscribers:
             self.subscribers[event_type].remove(callback)
@@ -457,7 +458,7 @@ class MarketDataService:
             'asks': orderbook['asks'][:depth]
         }
     
-    def calculate_vwap(self, symbol: str, window: int = 100) -> float:
+    def calculate_vwap(self, symbol: str, window: int = 100) -> Optional[float]:
         """计算成交量加权平均价格"""
         trades = list(self.trades_cache[symbol])[-window:]
         if not trades:
@@ -545,4 +546,4 @@ class MarketDataService:
         """获取标记价格"""
         if symbol in self.perpetual_cache:
             return self.perpetual_cache[symbol]['mark_price']
-        return None 
+        return None   
