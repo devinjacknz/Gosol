@@ -25,8 +25,13 @@ class MarketConfig:
     api_key: Optional[str] = None
     api_secret: Optional[str] = None
     cache_size: int = 1000
-    update_interval: float = 1.0  # 秒
+    update_interval: float = 1.0
     db_path: str = "market_data.db"
+    perpetual_enabled: bool = False
+    perpetual_symbols: List[str] = field(default_factory=list)
+    funding_interval: int = 8  # hours
+    max_leverage: int = 20
+    default_leverage: int = 1
 
 class MarketDataService:
     """市场数据服务"""
@@ -47,6 +52,7 @@ class MarketDataService:
         self.ohlcv_cache: Dict[str, Dict[str, deque]] = {}
         self.orderbook_cache: Dict[str, Dict] = {}
         self.trades_cache: Dict[str, deque] = {}
+        self.perpetual_cache: Dict[str, Dict] = {}
         
         # WebSocket连接
         self.ws_connections: Dict[str, websockets.WebSocketClientProtocol] = {}
@@ -57,7 +63,9 @@ class MarketDataService:
             'ohlcv': [],
             'orderbook': [],
             'trades': [],
-            'ticker': []
+            'ticker': [],
+            'funding': [],
+            'perpetual': []
         }
         
         # 初始化数据库
@@ -81,6 +89,21 @@ class MarketDataService:
                     low REAL,
                     close REAL,
                     volume REAL
+                )
+            """)
+            
+            # Perpetual trading data
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS perpetual_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME,
+                    symbol TEXT,
+                    funding_rate REAL,
+                    mark_price REAL,
+                    index_price REAL,
+                    open_interest REAL,
+                    next_funding_time DATETIME,
+                    exchange TEXT
                 )
             """)
             
@@ -266,6 +289,9 @@ class MarketDataService:
                             
                             # 通知订阅者
                             await self._notify_subscribers('ohlcv', symbol, data)
+                            
+                # 更新永续合约数据
+                await self.update_perpetual_data()
                     
                     # 更新订单簿
                     if not self.ws_connections.get(symbol):
@@ -439,4 +465,84 @@ class MarketDataService:
         
         volume_price = sum(trade['price'] * trade['amount'] for trade in trades)
         volume = sum(trade['amount'] for trade in trades)
-        return volume_price / volume if volume > 0 else None 
+        return volume_price / volume if volume > 0 else None
+        
+    async def fetch_perpetual_data(self, symbol: str) -> Dict:
+        """获取永续合约数据"""
+        if not self.config.perpetual_enabled or not self.config.perpetual_symbols:
+            return None
+            
+        if symbol not in self.config.perpetual_symbols:
+            return None
+            
+        try:
+            from exchanges.dydx_client import DydxClient
+            from exchanges.hyperliquid_client import HyperliquidClient
+            
+            dydx = DydxClient(self.config.api_key, self.config.api_secret)
+            hyperliquid = HyperliquidClient(self.config.api_key, self.config.api_secret)
+            
+            # Try dYdX first
+            try:
+                data = await dydx.get_funding_rate(symbol)
+                data['exchange'] = 'dydx'
+                data['open_interest'] = await dydx.get_open_interest(symbol)
+                return data
+            except Exception as e:
+                # Try Hyperliquid as fallback
+                data = await hyperliquid.get_funding_rate(symbol)
+                data['exchange'] = 'hyperliquid'
+                data['open_interest'] = await hyperliquid.get_open_interest(symbol)
+                return data
+                
+        except Exception as e:
+            logger.error(f"Error fetching perpetual data for {symbol}: {str(e)}")
+            return None
+            
+    def save_perpetual_data(self, symbol: str, data: Dict) -> None:
+        """保存永续合约数据"""
+        if not data:
+            return
+            
+        self.perpetual_cache[symbol] = data
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO perpetual_data (
+                    timestamp, symbol, funding_rate, mark_price,
+                    index_price, open_interest, next_funding_time, exchange
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                datetime.now(),
+                symbol,
+                data['funding_rate'],
+                data['mark_price'],
+                data['index_price'],
+                data['open_interest'],
+                data['next_funding_time'],
+                data['exchange']
+            ))
+            conn.commit()
+            
+    async def update_perpetual_data(self) -> None:
+        """更新永续合约数据"""
+        if not self.config.perpetual_enabled or not self.config.perpetual_symbols:
+            return
+            
+        for symbol in self.config.perpetual_symbols:
+            data = await self.fetch_perpetual_data(symbol)
+            if data:
+                self.save_perpetual_data(symbol, data)
+                await self._notify_subscribers('perpetual', symbol, data)
+                
+    def get_funding_rate(self, symbol: str) -> Optional[float]:
+        """获取当前资金费率"""
+        if symbol in self.perpetual_cache:
+            return self.perpetual_cache[symbol]['funding_rate']
+        return None
+        
+    def get_mark_price(self, symbol: str) -> Optional[float]:
+        """获取标记价格"""
+        if symbol in self.perpetual_cache:
+            return self.perpetual_cache[symbol]['mark_price']
+        return None 
