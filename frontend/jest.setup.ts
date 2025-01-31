@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom';
 import { TextEncoder, TextDecoder } from 'util';
 
-// 设置全局变量
+// Set up DOM environment globals
 global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder;
+(global as any).TextDecoder = TextDecoder;
 
 // 模拟matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -34,4 +34,4 @@ window.ResizeObserver = jest.fn().mockImplementation(() => ({
   observe: jest.fn(),
   unobserve: jest.fn(),
   disconnect: jest.fn(),
-})); 
+}));  

@@ -14,11 +14,11 @@ const queryClient = new QueryClient({
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // 初始化WebSocket连接
-  useWebSocket();
+  useWebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws');
 
   return (
     <QueryClientProvider client={queryClient}>
       {children}
     </QueryClientProvider>
   );
-} 
+}  
