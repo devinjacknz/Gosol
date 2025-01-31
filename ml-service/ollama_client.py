@@ -15,7 +15,7 @@ class OllamaClient:
         prompt = self._create_analysis_prompt(token_data)
         print("Prompt created successfully")
         
-        timeout = aiohttp.ClientTimeout(total=30)
+        timeout = aiohttp.ClientTimeout(total=120)  # Increase timeout to 2 minutes
         print(f"Sending request to Ollama at {self.base_url}/api/chat...")
         
         headers = {
@@ -83,12 +83,18 @@ class OllamaClient:
                                 continue
                         
                         print("Parsing complete response...")
-                        return self._parse_analysis_response({"response": full_response})
+                        try:
+                            return self._parse_analysis_response({"response": full_response})
+                        except Exception as parse_error:
+                            print(f"Failed to parse response: {parse_error}")
+                            if attempt == self.max_retries - 1:
+                                return default_response
+                            raise parse_error
             except Exception as e:
+                print(f"Attempt {attempt + 1} failed: {str(e)}")
                 if attempt == self.max_retries - 1:
                     print(f"Failed after {self.max_retries} attempts: {str(e)}")
                     return default_response
-                print(f"Attempt {attempt + 1} failed: {str(e)}")
                 await asyncio.sleep(self.retry_delay)
             except Exception as e:
                 if attempt == self.max_retries - 1:

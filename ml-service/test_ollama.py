@@ -42,11 +42,11 @@ async def test_market_analysis():
         try:
             result = await asyncio.wait_for(
                 ollama.analyze_market_sentiment(test_data),
-                timeout=30
+                timeout=120  # Increase timeout to match client
             )
             print("Ollama result:", result)
         except asyncio.TimeoutError:
-            print("Error: Ollama request timed out after 30 seconds")
+            print("Error: Ollama request timed out after 120 seconds")
             return
         except Exception as e:
             print(f"Error during Ollama request: {str(e)}")

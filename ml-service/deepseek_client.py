@@ -44,9 +44,17 @@ class DeepseekClient:
                     result = await response.json()
                     return self._parse_analysis_response(result)
         except Exception as api_error:
-            # Fallback to local Ollama model if available
+            print(f"DeepSeek API error: {api_error}. Attempting fallback to Ollama...")
             if await self.ollama_client.is_available():
-                return await self.ollama_client.analyze_market_sentiment(token_data)
+                try:
+                    return await asyncio.wait_for(
+                        self.ollama_client.analyze_market_sentiment(token_data),
+                        timeout=120
+                    )
+                except Exception as ollama_error:
+                    print(f"Ollama fallback failed: {ollama_error}")
+                    raise api_error
+            print("Ollama not available for fallback")
             raise api_error
     
     def _create_analysis_prompt(self, token_data: Dict) -> str:
