@@ -27,18 +27,18 @@ class DydxClient:
                         f"{self.base_url}/v3/markets/{market}",
                         headers=self.headers
                     ) as response:
-                if response.status != 200:
-                    raise Exception(f"dYdX API error: {await response.text()}")
-                data = await response.json()
-                return {
-                    'funding_rate': float(data['market']['nextFundingRate']),
-                    'mark_price': float(data['market']['oraclePrice']),
-                    'index_price': float(data['market']['indexPrice']),
-                    'next_funding_time': datetime.fromtimestamp(
-                        int(data['market']['nextFundingAt']),
-                        tz=timezone.utc
-                    )
-                }
+                        if response.status != 200:
+                            raise Exception(f"dYdX API error: {await response.text()}")
+                        data = await response.json()
+                        return {
+                            'funding_rate': float(data['market']['nextFundingRate']),
+                            'mark_price': float(data['market']['oraclePrice']),
+                            'index_price': float(data['market']['indexPrice']),
+                            'next_funding_time': datetime.fromtimestamp(
+                                int(data['market']['nextFundingAt']),
+                                tz=timezone.utc
+                            )
+                        }
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise Exception(f"Failed to fetch funding rate after {max_retries} attempts: {str(e)}")

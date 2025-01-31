@@ -27,22 +27,22 @@ class HyperliquidClient:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, headers=self.headers) as response:
-                if response.status != 200:
-                    raise Exception(f"Hyperliquid API error: {await response.text()}")
-                data = await response.json()
-                market_data = next(
-                    (m for m in data['universe'] if m['name'] == market),
-                    None
-                )
-                if not market_data:
-                    raise Exception(f"Market {market} not found")
-                    
-                return {
-                    'funding_rate': float(market_data['funding']),
-                    'mark_price': float(market_data['markPrice']),
-                    'index_price': float(market_data['indexPrice']),
-                    'next_funding_time': datetime.now(timezone.utc)
-                }
+                        if response.status != 200:
+                            raise Exception(f"Hyperliquid API error: {await response.text()}")
+                        data = await response.json()
+                        market_data = next(
+                            (m for m in data['universe'] if m['name'] == market),
+                            None
+                        )
+                        if not market_data:
+                            raise Exception(f"Market {market} not found")
+                        
+                        return {
+                            'funding_rate': float(market_data['funding']),
+                            'mark_price': float(market_data['markPrice']),
+                            'index_price': float(market_data['indexPrice']),
+                            'next_funding_time': datetime.now(timezone.utc)
+                        }
             except Exception as e:
                 if attempt == self.max_retries - 1:
                     raise Exception(f"Failed to fetch funding rate after {self.max_retries} attempts: {str(e)}")
@@ -54,16 +54,16 @@ class HyperliquidClient:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, headers=self.headers) as response:
-                if response.status != 200:
-                    raise Exception(f"Hyperliquid API error: {await response.text()}")
-                data = await response.json()
-                market_data = next(
-                    (m for m in data['universe'] if m['name'] == market),
-                    None
-                )
-                if not market_data:
-                    raise Exception(f"Market {market} not found")
-                return float(market_data['openInterest'])
+                        if response.status != 200:
+                            raise Exception(f"Hyperliquid API error: {await response.text()}")
+                        data = await response.json()
+                        market_data = next(
+                            (m for m in data['universe'] if m['name'] == market),
+                            None
+                        )
+                        if not market_data:
+                            raise Exception(f"Market {market} not found")
+                        return float(market_data['openInterest'])
             except Exception as e:
                 if attempt == self.max_retries - 1:
                     raise Exception(f"Failed to fetch open interest after {self.max_retries} attempts: {str(e)}")
