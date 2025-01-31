@@ -1,56 +1,62 @@
-import os
 import aiohttp
-from typing import Dict, List, Any
+import asyncio
+from typing import Dict, Any, Optional
 import json
-from .ollama_client import OllamaClient
 
-class DeepseekClient:
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
-        self.base_url = "https://api.deepseek.com/v1/chat"
-        self.ollama_client = OllamaClient()
-        
+class OllamaClient:
+    def __init__(self, model: str = "deepseek-r1:1.5b"):
+        self.base_url = "http://localhost:11434"
+        self.model = model
+        self.max_retries = 3
+        self.retry_delay = 1
+
     async def analyze_market_sentiment(self, token_data: Dict) -> Dict[str, Any]:
-        """Analyze market sentiment using Deepseek's API"""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # Prepare market data for analysis
         prompt = self._create_analysis_prompt(token_data)
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.base_url}/completions",
-                    headers=headers,
-                    json={
-                        "model": "deepseek-coder-33b-instruct",
-                        "messages": [
-                            {"role": "system", "content": "You are a cryptocurrency market analyst specializing in Solana meme coins. You analyze market data and provide structured JSON responses."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        "temperature": 0.3,
-                        "max_tokens": 1000,
-                        "top_p": 0.8,
-                        "stream": False,
-                        "stop": ["</s>"]
-                    }
-                ) as response:
-                    if response.status != 200:
-                        raise Exception(f"Deepseek API error: {await response.text()}")
-                    
-                    result = await response.json()
-                    return self._parse_analysis_response(result)
-        except Exception as api_error:
-            # Fallback to local Ollama model if available
-            if await self.ollama_client.is_available():
-                return await self.ollama_client.analyze_market_sentiment(token_data)
-            raise api_error
-    
+        default_response = {
+            'sentiment': 'neutral',
+            'risk_level': 5.0,
+            'price_prediction': {
+                'target': None,
+                'timeframe': None,
+                'support': None,
+                'resistance': None
+            },
+            'key_factors': [],
+            'recommendation': 'HOLD',
+            'confidence': 0.5,
+            'risk_analysis': {
+                'manipulation_risk': 'medium',
+                'liquidity_risk': 'medium',
+                'volatility_risk': 'medium'
+            }
+        }
+        
+        for attempt in range(self.max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{self.base_url}/api/chat",
+                        json={
+                            "model": self.model,
+                            "messages": [
+                                {"role": "system", "content": "You are a cryptocurrency market analyst specializing in Solana meme coins. You analyze market data and provide structured JSON responses."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            "stream": False
+                        }
+                    ) as response:
+                        if response.status != 200:
+                            raise Exception(f"Ollama API error: {await response.text()}")
+                        result = await response.json()
+                        return self._parse_analysis_response(result)
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    return default_response
+                await asyncio.sleep(self.retry_delay)
+        return default_response
+
     def _create_analysis_prompt(self, token_data: Dict) -> str:
-        """Create a prompt for market analysis"""
         return f"""
         Please analyze the following market data for a Solana meme coin:
         
@@ -95,12 +101,10 @@ class DeepseekClient:
 
         Ensure your response is a valid JSON object with all fields properly formatted.
         """
-    
+
     def _parse_analysis_response(self, response: Dict) -> Dict:
-        """Parse the Deepseek API response into structured data"""
         try:
-            content = response['choices'][0]['message']['content']
-            # Parse the JSON response from the content
+            content = response['response']
             analysis = json.loads(content)
             return {
                 'sentiment': analysis.get('market_sentiment', 'neutral'),
@@ -139,3 +143,11 @@ class DeepseekClient:
                     'volatility_risk': 'medium'
                 }
             }
+
+    async def is_available(self) -> bool:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{self.base_url}/api/tags") as response:
+                    return response.status == 200
+        except:
+            return False
