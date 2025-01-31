@@ -10,30 +10,34 @@ export interface Position {
   unrealizedPnL: number;
 }
 
-export interface MarketData {
-  [symbol: string]: {
-    symbol: string;
-    price: number;
-    change24h: number;
-    high24h: number;
-    low24h: number;
-    volume: number;
-    fundingRate?: number;
-    nextFundingTime?: string;
-    volume24h?: number;
-    openInterest?: number;
-    orderBook?: {
-      asks: [number, number][];
-      bids: [number, number][];
-    };
-    trades?: Array<{
-      id: string;
-      price: number;
-      amount: number;
-      side: 'buy' | 'sell';
-      timestamp: string;
-    }>;
+export interface MarketDataEntry {
+  symbol: string;
+  price: number;
+  change24h: number;
+  high24h: number;
+  low24h: number;
+  volume: number;
+  fundingRate?: number;
+  nextFundingTime?: string;
+  volume24h?: number;
+  openInterest?: number;
+  orderBook?: {
+    asks: [number, number][];
+    bids: [number, number][];
   };
+  trades?: Array<{
+    id: string;
+    price: number;
+    amount: number;
+    side: 'buy' | 'sell';
+    timestamp: string;
+  }>;
+  lastUpdate?: string;
+  isLive?: boolean;
+}
+
+export interface MarketData {
+  [symbol: string]: MarketDataEntry;
 }
 
 export interface AccountInfo {
@@ -54,7 +58,7 @@ export interface AccountInfo {
 export interface SystemStatus {
   isConnected: boolean;
   lastUpdate: string;
-  status: 'online' | 'offline' | 'maintenance';
+  status: 'online' | 'offline' | 'maintenance' | 'error';
   message?: string;
   dataDelay: number;
 }

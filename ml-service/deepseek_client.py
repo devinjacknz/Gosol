@@ -12,8 +12,12 @@ class DeepseekClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
         self.base_url = "https://api.deepseek.com/v1/chat"
-        self.ollama_client = OllamaClient()
-        self.timeout = aiohttp.ClientTimeout(total=120)  # 2 minute timeout
+        self.timeout = aiohttp.ClientTimeout(total=120)
+        try:
+            self.ollama_client = OllamaClient()
+        except Exception as e:
+            logger.warning(f"Failed to initialize Ollama client: {e}")
+            self.ollama_client = None
         
     async def analyze_market_sentiment(self, token_data: Dict) -> Dict[str, Any]:
         """Analyze market sentiment using Deepseek's API"""
@@ -54,16 +58,21 @@ class DeepseekClient:
                     return self._parse_analysis_response(result)
         except Exception as api_error:
             print(f"DeepSeek API error: {api_error}. Attempting fallback to Ollama...")
-            if await self.ollama_client.is_available():
+            if self.ollama_client and await self.ollama_client.is_available():
                 try:
-                    return await asyncio.wait_for(
+                    result = await asyncio.wait_for(
                         self.ollama_client.analyze_market_sentiment(token_data),
                         timeout=120
                     )
-                except Exception as ollama_error:
-                    print(f"Ollama fallback failed: {ollama_error}")
+                    logger.info("Successfully used Ollama fallback for market analysis")
+                    return result
+                except asyncio.TimeoutError:
+                    logger.error("Ollama analysis timed out")
                     raise api_error
-            print("Ollama not available for fallback")
+                except Exception as ollama_error:
+                    logger.error(f"Ollama fallback failed: {ollama_error}")
+                    raise api_error
+            logger.warning("Ollama not available for fallback")
             raise api_error
     
     def _create_analysis_prompt(self, token_data: Dict) -> str:
@@ -113,15 +122,58 @@ class DeepseekClient:
         Ensure your response is a valid JSON object with all fields properly formatted.
         """
     
+    async def check_health(self) -> bool:
+        """Check if Deepseek API is healthy and accessible"""
+        if not self.api_key:
+            return False
+            
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/completions",
+                    headers=headers,
+                    json={
+                        "model": "deepseek-coder-33b-instruct",
+                        "messages": [{"role": "system", "content": "health check"}],
+                        "max_tokens": 1
+                    }
+                ) as response:
+                    return response.status == 200
+        except Exception as e:
+            logger.error(f"Deepseek health check failed: {e}")
+            return False
+            
     def _parse_analysis_response(self, response: Dict) -> Dict:
         """Parse the Deepseek API response into structured data"""
         try:
             content = response['choices'][0]['message']['content']
-            # Parse the JSON response from the content
+            content = content.strip()
+            
+            # Handle potential JSON within markdown code blocks
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+                
             analysis = json.loads(content)
+            
+            # Validate numeric fields
+            risk_level = analysis.get('risk_level')
+            if not isinstance(risk_level, (int, float)) or risk_level < 0 or risk_level > 10:
+                risk_level = 5.0
+                
+            confidence = analysis.get('confidence')
+            if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
+                confidence = 0.5
+                
             return {
                 'sentiment': analysis.get('market_sentiment', 'neutral'),
-                'risk_level': float(analysis.get('risk_level', 5)),
+                'risk_level': float(risk_level),
                 'price_prediction': {
                     'target': analysis.get('short_term_prediction', {}).get('target_price'),
                     'timeframe': analysis.get('short_term_prediction', {}).get('timeframe'),
@@ -130,14 +182,15 @@ class DeepseekClient:
                 },
                 'key_factors': analysis.get('key_factors', []),
                 'recommendation': analysis.get('trading_recommendation', 'HOLD'),
-                'confidence': float(analysis.get('confidence', 0.5)),
+                'confidence': float(confidence),
                 'risk_analysis': {
                     'manipulation_risk': analysis.get('risk_analysis', {}).get('market_manipulation_risk', 'medium'),
                     'liquidity_risk': analysis.get('risk_analysis', {}).get('liquidity_risk', 'medium'),
                     'volatility_risk': analysis.get('risk_analysis', {}).get('volatility_risk', 'medium')
                 }
             }
-        except (KeyError, json.JSONDecodeError) as e:
+        except (KeyError, json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse analysis response: {e}")
             return {
                 'sentiment': 'neutral',
                 'risk_level': 5.0,

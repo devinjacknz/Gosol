@@ -17,7 +17,7 @@ import {
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { formatPrice, formatAmount, validateOrder } from '@/utils/trading';
 import { useTradingStore } from '@/store';
-import type { MarketData } from '@/types/trading';
+import type { MarketDataEntry } from '@/types/trading';
 
 interface TradingViewProps {
   symbol: string;
@@ -30,47 +30,45 @@ interface TradingViewProps {
   }) => void;
 }
 
-type OrderBookEntry = [number, number];
-
-interface MarketTrade {
-  id: string;
-  price: number;
-  amount: number;
-  side: 'buy' | 'sell';
-  timestamp: string;
-}
-
 export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) {
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
 
-  useWebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws');
+  useWebSocket(symbol);
   const { marketData, systemStatus } = useTradingStore();
-  const currentMarket = marketData[symbol];
+  const currentMarket: MarketDataEntry | undefined = marketData[symbol];
   const isConnected = systemStatus?.isConnected || false;
 
   const handleSubmit = (side: 'buy' | 'sell') => {
-    if (!currentMarket) return;
-
-    const order = {
-      symbol,
-      side,
-      type: 'limit' as const,
-      price: parseFloat(price || currentMarket.price.toString()),
-      amount: parseFloat(amount),
-    };
-
-    const validation = validateOrder(order);
-    if (!validation.isValid) {
-      setErrors(validation.errors || []);
+    if (!currentMarket) {
+      setErrors(['Market data not available']);
       return;
     }
 
-    onPlaceOrder?.(order);
-    setPrice('');
-    setAmount('');
-    setErrors([]);
+    try {
+      const order = {
+        symbol,
+        side,
+        type: 'limit' as const,
+        price: parseFloat(price || currentMarket.price.toString()),
+        amount: parseFloat(amount),
+      };
+
+      const validation = validateOrder(order);
+      if (!validation.isValid) {
+        setErrors(validation.errors || ['Invalid order parameters']);
+        return;
+      }
+
+      onPlaceOrder?.(order);
+      setPrice('');
+      setAmount('');
+      setErrors([]);
+    } catch (error) {
+      console.error('Order submission error:', error);
+      setErrors(['Invalid order parameters']);
+    }
   };
 
   if (!isConnected) {
@@ -226,4 +224,4 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
       </Grid>
     </Grid>
   );
-}          
+}                

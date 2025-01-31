@@ -611,46 +611,72 @@ class RiskManager:
             total_equity = self._calculate_total_equity()
             return self._calculate_cross_liquidation_price(position, total_equity)
 
+    def _calculate_total_equity(self) -> float:
+        """计算总权益"""
+        total_equity = self._get_portfolio_state().total_equity
+        return float(total_equity)
+
+    def _calculate_free_margin(self) -> float:
+        """计算可用保证金"""
+        portfolio_state = self._get_portfolio_state()
+        return float(portfolio_state.free_margin)
+
     def _calculate_cross_liquidation_price(self, position: ContractPosition, total_equity: float) -> float:
         """计算全仓模式下的强平价格"""
-        total_margin = sum(p.margin_used for p in self.positions.values())
-        available_margin = total_equity - total_margin + position.margin_used
-        
-        if position.direction == 'long':
-            return position.entry_price * (1 - available_margin/(position.size * position.entry_price))
-        else:
-            return position.entry_price * (1 + available_margin/(position.size * position.entry_price))
+        try:
+            total_margin = sum(p.margin_used for p in self.positions.values())
+            available_margin = total_equity - total_margin + position.margin_used
+            
+            if position.direction == 'long':
+                return float(position.entry_price * (1 - available_margin/(position.size * position.entry_price)))
+            else:
+                return float(position.entry_price * (1 + available_margin/(position.size * position.entry_price)))
+        except ZeroDivisionError:
+            logger.error(f"Zero division error calculating liquidation price for {position.symbol}")
+            return position.entry_price
+        except Exception as e:
+            logger.error(f"Error calculating cross liquidation price: {e}")
+            return position.entry_price
 
     def _check_margin_requirement(self, position: ContractPosition) -> bool:
         """检查保证金要求"""
-        required_margin = position.size * position.entry_price / position.leverage
-        maintenance_margin = required_margin * self.min_maintenance_margin
-        
-        if position.margin_type == 'isolated':
-            return position.margin_used >= required_margin
-        else:
-            total_equity = self._calculate_total_equity()
-            return total_equity >= sum(p.margin_used for p in self.positions.values()) + required_margin
-
-    def can_open_position(self, order: Dict) -> bool:
-        """检查是否可以开仓"""
-        if 'leverage' in order:  # 合约订单
-            if not self._check_leverage(order['leverage']):
-                logger.warning(f"Leverage {order['leverage']} exceeds maximum allowed {self.max_leverage}")
-                return False
-                
-            position_value = order['size'] * order['price']
-            if position_value > self.max_position_value:
-                logger.warning(f"Position value {position_value} exceeds maximum allowed {self.max_position_value}")
-                return False
+        try:
+            required_margin = position.size * position.entry_price / position.leverage
+            maintenance_margin = required_margin * self.min_maintenance_margin
             
-            # 检查保证金要求
-            required_margin = position_value / order['leverage']
-            if required_margin > self._calculate_free_margin():
-                logger.warning("Insufficient margin for the order")
-                return False
-        
-        return super().can_open_position(order)
+            if position.margin_type == 'isolated':
+                return float(position.margin_used) >= float(required_margin)
+            else:
+                total_equity = self._calculate_total_equity()
+                return float(total_equity) >= float(sum(p.margin_used for p in self.positions.values()) + required_margin)
+        except Exception as e:
+            logger.error(f"Error checking margin requirement: {e}")
+            return False
+
+    def can_open_position(self, order: Dict[str, Union[str, float, int]]) -> bool:
+        """检查是否可以开仓"""
+        try:
+            if 'leverage' in order:  # 合约订单
+                leverage = float(order['leverage'])
+                if not self._check_leverage(leverage):
+                    logger.warning(f"Leverage {leverage} exceeds maximum allowed {self.max_leverage}")
+                    return False
+                    
+                position_value = float(order['size']) * float(order['price'])
+                if position_value > self.max_position_value:
+                    logger.warning(f"Position value {position_value} exceeds maximum allowed {self.max_position_value}")
+                    return False
+                
+                # 检查保证金要求
+                required_margin = position_value / leverage
+                if required_margin > self._calculate_free_margin():
+                    logger.warning("Insufficient margin for the order")
+                    return False
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error checking position opening: {e}")
+            return False
 
     def _update_contract_positions(self):
         """更新合约持仓状态"""
@@ -688,4 +714,4 @@ class RiskManager:
                             'funding_rate': position.funding_rate,
                             'next_funding_time': position.next_funding_time.isoformat()
                         }
-                    )  
+                    )    

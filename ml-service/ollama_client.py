@@ -1,11 +1,17 @@
 import aiohttp
 import asyncio
+import os
 from typing import Dict, Any, Optional
 import json
+from loguru import logger
 
 class OllamaClient:
     def __init__(self, model: str = "deepseek-r1:1.5b"):
-        self.base_url = "http://localhost:11434"
+        self.base_url = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
+        self.model = model
+        self.max_retries = 3
+        self.retry_delay = 1
+        self.initialized = False
         self.model = model
         self.max_retries = 3
         self.retry_delay = 1
@@ -193,10 +199,79 @@ class OllamaClient:
                 }
             }
 
-    async def is_available(self) -> bool:
+    async def get_model_info(self) -> Dict[str, Any]:
+        """Get detailed information about the loaded model and pull if needed"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{self.base_url}/api/tags") as response:
-                    return response.status == 200
-        except:
+                # Try to get model info
+                async with session.post(
+                    f"{self.base_url}/api/show",
+                    json={"name": self.model}
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return {
+                            "status": "loaded",
+                            "size": data.get("size", "unknown"),
+                            "modified": data.get("modified", "unknown"),
+                            "latency_ms": data.get("response_ms", 0)
+                        }
+                    
+                    # Model not found, try to pull it
+                    async with session.post(
+                        f"{self.base_url}/api/pull",
+                        json={"name": self.model}
+                    ) as pull_response:
+                        if pull_response.status == 200:
+                            # Wait for model to be ready
+                            await asyncio.sleep(2)
+                            return {
+                                "status": "loaded",
+                                "size": "unknown",
+                                "modified": "unknown",
+                                "latency_ms": 0
+                            }
+                        return {
+                            "status": "not_loaded",
+                            "error": f"Model pull failed with status {pull_response.status}"
+                        }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def check_health(self) -> bool:
+        """Check if Ollama service is healthy and model is available"""
+        try:
+            if not self.initialized:
+                # Initialize connection on first health check
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{self.base_url}/api/health") as response:
+                        if response.status == 200:
+                            self.initialized = True
+                        else:
+                            return False
+
+            # Check if model is available
+            model_info = await self.get_model_info()
+            if model_info.get("status") == "loaded":
+                return True
+
+            # Try to pull model if not loaded
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/api/pull",
+                    json={"name": self.model}
+                ) as pull_response:
+                    if pull_response.status == 200:
+                        await asyncio.sleep(2)  # Wait for model to be ready
+                        return True
             return False
+        except Exception as e:
+            logger.error(f"Ollama health check failed: {e}")
+            return False
+            
+    async def is_available(self) -> bool:
+        """Deprecated: Use check_health() instead"""
+        return await self.check_health()

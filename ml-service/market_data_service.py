@@ -1,17 +1,16 @@
 import logging
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Union, Callable, Any, Tuple
+from typing import Dict, List, Optional, Union, Callable, Any, Tuple, TypeVar
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-import websockets
 import ccxt.async_support as ccxt
 import asyncio
 import json
-from websockets.client import connect as ws_connect
 import sqlite3
 from pathlib import Path
-import websockets
+import aiohttp
+from aiohttp import ClientWebSocketResponse, WSMsgType, ClientSession
 from collections import deque
 
 # 配置日志
@@ -57,8 +56,9 @@ class MarketDataService:
         self.perpetual_cache: Dict[str, Dict] = {}
         
         # WebSocket连接
-        self.ws_connections: Dict[str, websockets.WebSocketClientProtocol] = {}
+        self.ws_connections: Dict[str, ClientWebSocketResponse] = {}
         self.ws_subscriptions: Dict[str, List[str]] = {}
+        self.session: Optional[ClientSession] = None
         
         # 事件订阅者
         self.subscribers: Dict[str, List[Callable]] = {
@@ -69,6 +69,9 @@ class MarketDataService:
             'funding': [],
             'perpetual': []
         }
+        
+        # 永续合约数据缓存
+        self.perpetual_data: Dict[str, Dict[str, Any]] = {}
         
         # 初始化数据库
         self._initialize_database()
@@ -141,6 +144,7 @@ class MarketDataService:
         """启动服务"""
         logger.info("Starting market data service...")
         self.is_running = True
+        self.session = ClientSession()
         
         # 初始化缓存
         for symbol in self.config.symbols:
@@ -172,6 +176,10 @@ class MarketDataService:
         # 关闭WebSocket连接
         for ws in self.ws_connections.values():
             await ws.close()
+        
+        # 关闭HTTP会话
+        if self.session:
+            await self.session.close()
         
         # 关闭交易所连接
         await self.exchange.close()
@@ -217,24 +225,32 @@ class MarketDataService:
     
     async def _start_websocket(self):
         """启动WebSocket连接"""
-        if not hasattr(self.exchange, 'ws'):
+        if not hasattr(self.exchange, 'urls') or 'ws' not in self.exchange.urls:
             logger.warning(f"Exchange {self.config.exchange} does not support WebSocket")
             return
         
         for symbol in self.config.symbols:
             try:
                 # 创建WebSocket连接
-                ws = await ws_connect(self.exchange.urls['ws'])
+                ws = await self.session.ws_connect(self.exchange.urls['ws'])
                 self.ws_connections[symbol] = ws
                 
                 # 订阅数据
                 channels = ['ticker', 'orderbook', 'trades']
-                subscriptions = []
-                for channel in channels:
-                    sub = await ws.subscribe(channel, symbol)
-                    subscriptions.append(sub)
+                if self.config.perpetual_enabled and symbol in self.config.perpetual_symbols:
+                    channels.append('funding')
                 
-                self.ws_subscriptions[symbol] = subscriptions
+                for channel in channels:
+                    await ws.send_json({
+                        'type': 'subscribe',
+                        'channel': channel,
+                        'symbol': symbol
+                    })
+                
+                self.ws_subscriptions[symbol] = channels
+                
+                # 启动消息处理
+                asyncio.create_task(self._handle_ws_messages(symbol, ws))
                 
                 # 启动消息处理
                 asyncio.create_task(self._handle_ws_messages(symbol, ws))
@@ -242,27 +258,38 @@ class MarketDataService:
             except Exception as e:
                 logger.error(f"Error starting WebSocket for {symbol}: {str(e)}")
     
-    async def _handle_ws_messages(self, symbol: str, ws: WebSocketClientProtocol):
+    async def _handle_ws_messages(self, symbol: str, ws: ClientWebSocketResponse):
         """处理WebSocket消息"""
         try:
-            async for message in ws:
+            async for msg in ws:
                 if not self.is_running:
                     break
                 
-                data = json.loads(message)
-                
-                # 处理不同类型的消息
-                if 'type' in data:
-                    if data['type'] == 'ticker':
-                        await self._handle_ticker(symbol, data)
-                    elif data['type'] == 'orderbook':
-                        await self._handle_orderbook(symbol, data)
-                    elif data['type'] == 'trade':
-                        await self._handle_trade(symbol, data)
+                if msg.type == WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                        if 'type' in data:
+                            if data['type'] == 'ticker':
+                                await self._handle_ticker(symbol, data)
+                            elif data['type'] == 'orderbook':
+                                await self._handle_orderbook(symbol, data)
+                            elif data['type'] == 'trade':
+                                await self._handle_trade(symbol, data)
+                            elif data['type'] == 'funding':
+                                await self._handle_funding(symbol, data)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse WebSocket message: {e}")
+                elif msg.type == WSMsgType.ERROR:
+                    logger.error(f"WebSocket error for {symbol}: {ws.exception()}")
+                elif msg.type == WSMsgType.CLOSED:
+                    logger.warning(f"WebSocket connection closed for {symbol}")
+                    break
                 
         except Exception as e:
             logger.error(f"Error handling WebSocket messages for {symbol}: {str(e)}")
-            
+        finally:
+            if not ws.closed:
+                await ws.close()
             # 尝试重新连接
             await asyncio.sleep(5)
             await self._start_websocket()
@@ -379,6 +406,52 @@ class MarketDataService:
         
         # 通知订阅者
         await self._notify_subscribers('trades', symbol, trade)
+        
+    async def _handle_funding(self, symbol: str, data: Dict):
+        """处理资金费率数据"""
+        try:
+            funding_data = {
+                'timestamp': pd.Timestamp.now(),
+                'funding_rate': float(data['funding_rate']),
+                'mark_price': float(data['mark_price']),
+                'index_price': float(data['index_price']),
+                'next_funding_time': pd.Timestamp(data['next_funding_time']),
+                'exchange': data.get('exchange', 'unknown')
+            }
+            
+            if 'open_interest' in data:
+                funding_data['open_interest'] = float(data['open_interest'])
+            
+            # 更新缓存
+            self.perpetual_cache[symbol] = funding_data
+            
+            # 保存到数据库
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT INTO perpetual_data (
+                        timestamp, symbol, funding_rate, mark_price,
+                        index_price, open_interest, next_funding_time, exchange
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    funding_data['timestamp'],
+                    symbol,
+                    funding_data['funding_rate'],
+                    funding_data['mark_price'],
+                    funding_data['index_price'],
+                    funding_data.get('open_interest', 0),
+                    funding_data['next_funding_time'],
+                    funding_data['exchange']
+                ))
+                conn.commit()
+            
+            # 通知订阅者
+            await self._notify_subscribers('funding', symbol, funding_data)
+            
+        except (ValueError, KeyError) as e:
+            logger.error(f"Error processing funding data for {symbol}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error processing funding data for {symbol}: {str(e)}")
+            raise
     
     async def _notify_subscribers(self, event_type: str, symbol: str, data: Dict):
         """通知订阅者"""
@@ -542,15 +615,25 @@ class MarketDataService:
             # Try dYdX first
             try:
                 data = await dydx.get_funding_rate(symbol)
-                data['exchange'] = 'dydx'
-                data['open_interest'] = await dydx.get_open_interest(symbol)
-                return data
+                if data:
+                    data['exchange'] = 'dydx'
+                    data['open_interest'] = await dydx.get_open_interest(symbol)
+                    logger.info(f"Successfully fetched dYdX data for {symbol}")
+                    return data
             except Exception as e:
-                # Try Hyperliquid as fallback
+                logger.warning(f"Failed to fetch dYdX data for {symbol}: {str(e)}")
+            
+            # Try Hyperliquid as fallback
+            try:
                 data = await hyperliquid.get_funding_rate(symbol)
-                data['exchange'] = 'hyperliquid'
-                data['open_interest'] = await hyperliquid.get_open_interest(symbol)
-                return data
+                if data:
+                    data['exchange'] = 'hyperliquid'
+                    data['open_interest'] = await hyperliquid.get_open_interest(symbol)
+                    logger.info(f"Successfully fetched Hyperliquid data for {symbol}")
+                    return data
+            except Exception as e:
+                logger.error(f"Failed to fetch Hyperliquid data for {symbol}: {str(e)}")
+                return None
                 
         except Exception as e:
             logger.error(f"Error fetching perpetual data for {symbol}: {str(e)}")
@@ -583,14 +666,25 @@ class MarketDataService:
             
     async def update_perpetual_data(self) -> None:
         """更新永续合约数据"""
-        if not self.config.perpetual_enabled or not self.config.perpetual_symbols:
+        if not self.config.perpetual_enabled:
+            logger.debug("Perpetual trading not enabled")
+            return
+            
+        if not self.config.perpetual_symbols:
+            logger.debug("No perpetual symbols configured")
             return
             
         for symbol in self.config.perpetual_symbols:
-            data = await self.fetch_perpetual_data(symbol)
-            if data:
-                self.save_perpetual_data(symbol, data)
-                await self._notify_subscribers('perpetual', symbol, data)
+            try:
+                data = await self.fetch_perpetual_data(symbol)
+                if data:
+                    self.save_perpetual_data(symbol, data)
+                    await self._notify_subscribers('perpetual', symbol, data)
+                else:
+                    logger.warning(f"No perpetual data available for {symbol}")
+            except Exception as e:
+                logger.error(f"Failed to update perpetual data for {symbol}: {str(e)}")
+                continue
                 
     def get_funding_rate(self, symbol: str) -> Optional[float]:
         """获取当前资金费率"""
@@ -602,4 +696,4 @@ class MarketDataService:
         """获取标记价格"""
         if symbol in self.perpetual_cache:
             return self.perpetual_cache[symbol]['mark_price']
-        return None                   
+        return None                           

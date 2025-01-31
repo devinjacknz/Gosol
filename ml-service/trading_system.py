@@ -1,20 +1,14 @@
 import asyncio
 import logging
-from typing import Dict, List
-from datetime import datetime
-from agent_system import AgentSystem, AgentConfig
-from trade_executor import TradeExecutor
-import logging
-import asyncio
-from typing import Dict, Optional, List, Any, Union
-from datetime import datetime
 import pandas as pd
-from config import Config
-from market_data_service import MarketDataService, MarketConfig
-from risk_management import RiskManager, RiskConfig, Position, ContractPosition
-from ml_agent import DeepSeekAgent
-from agent_system import TradeSignal, AgentSystem, AgentConfig
-from trade_executor import TradeExecutor
+from typing import Dict, List, Optional, Any, Union
+from datetime import datetime
+from ml_service.config import Config
+from ml_service.market_data_service import MarketDataService, MarketConfig
+from ml_service.risk_management import RiskManager, RiskConfig, Position, ContractPosition
+from ml_service.ml_agent import DeepSeekAgent
+from ml_service.agent_system import TradeSignal, AgentSystem, AgentConfig
+from ml_service.trade_executor import TradeExecutor
 
 # 配置日志
 logging.basicConfig(**Config.get_log_config())
@@ -317,41 +311,26 @@ class TradingSystem:
             logger.error(f"Failed risk check: {str(e)}")
             return
         
-        # 创建新仓位
-        position = Position(
-            symbol=symbol,
-            direction=direction,
-            size=position_size,
-            entry_price=current_price,
-            current_price=current_price,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            unrealized_pnl=0.0,
-            realized_pnl=0.0,
-            margin_used=self.risk_manager._calculate_margin(position_size, current_price),
-            timestamp=datetime.now(),
-            metadata={
-                'confidence': confidence,
-                'volatility': volatility,
-                'atr': atr
-            }
-        )
-        
-        # 执行交易
+        # 创建交易信号
         try:
             signal = TradeSignal(
                 symbol=symbol,
-                direction=position.direction,
-                size=position.size,
-                stop_loss=position.stop_loss,
-                take_profit=position.take_profit,
+                direction=direction,
+                size=position_size,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
                 confidence=confidence,
                 agent_name="SYSTEM",
-                price=position.current_price,
+                price=current_price,
                 timestamp=datetime.now(),
-                metadata={}
+                metadata={
+                    'confidence': confidence,
+                    'volatility': volatility,
+                    'atr': atr,
+                    'margin_used': self.risk_manager._calculate_margin(position_size, current_price)
+                }
             )
-            await self.trade_executor.process_signal(signal, position.current_price)
+            await self.trade_executor.process_signal(signal, current_price)
             logger.info(f"New position opened: {symbol}")
         except Exception as e:
             logger.error(f"Failed to execute order: {e}")
@@ -388,10 +367,14 @@ class TradingSystem:
                     current_price = self.market_data_service.get_latest_price(symbol)
                     if current_price:
                         if isinstance(position, (Position, ContractPosition)):
-                            if isinstance(position, Position):
+                            try:
                                 await self.trade_executor._close_position(position, current_price, "RISK_EVENT")
+                            except TypeError:
+                                logger.error(f"Type mismatch closing position for {symbol}")
+                            except Exception as e:
+                                logger.error(f"Error closing position for {symbol}: {e}")
                 except Exception as e:
-                    logger.error(f"Failed to close position {symbol}: {e}")
+                    logger.error(f"Failed to handle position {symbol}: {e}")
             
             # 暂停交易
             self.is_running = False
@@ -450,4 +433,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main())                                    
+    asyncio.run(main())                                        
