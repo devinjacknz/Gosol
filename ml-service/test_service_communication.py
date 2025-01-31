@@ -38,20 +38,33 @@ async def test_service_communication():
     risk_manager = RiskManager(risk_config)
     
     trading_system = TradingSystem(
-        market_data=market_service,
+        market_data_service=market_service,
         agent_system=agent_system,
         risk_manager=risk_manager
     )
     
     async def price_callback(symbol: str, data: dict):
         logger.debug(f"[ServiceTest] Price update received for {symbol}: {data}")
+        # Verify data propagation to trading system
+        current_price = market_service.get_latest_price(symbol)
+        logger.debug(f"[ServiceTest] Latest price in market service for {symbol}: {current_price}")
     
     async def orderbook_callback(symbol: str, data: dict):
         logger.debug(f"[ServiceTest] Orderbook update received for {symbol}: {data}")
+        # Verify orderbook data
+        depth = market_service.get_market_depth(symbol)
+        logger.debug(f"[ServiceTest] Market depth for {symbol}: {depth}")
     
     async def funding_callback(symbol: str, data: dict):
         logger.debug(f"[ServiceTest] Funding update received for {symbol}: {data}")
+        # Verify perpetual data
+        funding_rate = market_service.get_funding_rate(symbol)
+        logger.debug(f"[ServiceTest] Funding rate for {symbol}: {funding_rate}")
     
+    # Set up logging
+    logging.basicConfig(level=logging.DEBUG)
+    
+    # Subscribe to market data updates
     market_service.subscribe('trades', price_callback)
     market_service.subscribe('orderbook', orderbook_callback)
     market_service.subscribe('funding', funding_callback)
