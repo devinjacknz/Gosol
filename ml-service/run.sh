@@ -13,7 +13,7 @@ command -v python3 >/dev/null 2>&1 || { echo "Python3 is required but not instal
 
 # 安装基础依赖
 echo "Installing basic dependencies..."
-pip3 install ccxt pandas numpy websockets TA-Lib
+pip3 install ccxt pandas numpy websockets pandas-ta streaming-indicators
 
 # 安装机器学习依赖
 echo "Installing ML dependencies..."
@@ -36,4 +36,4 @@ fi
 
 # 运行系统
 echo "Starting trading system..."
-python3 trading_system.py 
+python3 trading_system.py   

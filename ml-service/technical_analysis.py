@@ -237,38 +237,67 @@ class TechnicalAnalysis:
     @staticmethod
     def calculate_trend_strength(data: pd.Series, period: int = 14) -> Dict[str, float]:
         """Calculate trend strength indicators"""
-        # ADX (Average Directional Index)
-        adx = talib.ADX(data.high, data.low, data.close, timeperiod=period)
+        high = data.high.astype(float)
+        low = data.low.astype(float)
+        close = data.close.astype(float)
         
-        # Aroon Indicator
-        aroon_up, aroon_down = talib.AROON(data.high, data.low, timeperiod=period)
+        # ADX calculation
+        high_diff = high.diff()
+        low_diff = low.diff()
         
-        # CCI (Commodity Channel Index)
-        cci = talib.CCI(data.high, data.low, data.close, timeperiod=period)
+        pos_dm = pd.Series(np.where((high_diff > 0) & (high_diff > -low_diff), high_diff, 0))
+        neg_dm = pd.Series(np.where((low_diff < 0) & (-low_diff > high_diff), -low_diff, 0))
+        
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        pos_di = 100 * (pos_dm.ewm(span=period).mean() / tr.ewm(span=period).mean())
+        neg_di = 100 * (neg_dm.ewm(span=period).mean() / tr.ewm(span=period).mean())
+        
+        dx = 100 * abs(pos_di - neg_di) / (pos_di + neg_di)
+        adx = dx.ewm(span=period).mean()
+        
+        # Aroon calculation
+        high_period = high.rolling(window=period).apply(lambda x: (period - x.argmax()) / period * 100)
+        low_period = low.rolling(window=period).apply(lambda x: (period - x.argmin()) / period * 100)
+        
+        # CCI calculation
+        tp = (high + low + close) / 3
+        tp_sma = tp.rolling(window=period).mean()
+        mad = tp.rolling(window=period).apply(lambda x: abs(x - x.mean()).mean())
+        cci = (tp - tp_sma) / (0.015 * mad)
         
         return {
-            'adx': adx.iloc[-1],
-            'aroon_up': aroon_up.iloc[-1],
-            'aroon_down': aroon_down.iloc[-1],
-            'cci': cci.iloc[-1]
+            'adx': float(adx.iloc[-1]),
+            'aroon_up': float(high_period.iloc[-1]),
+            'aroon_down': float(low_period.iloc[-1]),
+            'cci': float(cci.iloc[-1])
         }
     
     @staticmethod
     def calculate_momentum_indicators(data: pd.Series, period: int = 14) -> Dict[str, float]:
         """Calculate momentum indicators"""
-        # ROC (Rate of Change)
-        roc = talib.ROC(data, timeperiod=period)
+        close = data.close.astype(float)
+        high = data.high.astype(float)
+        low = data.low.astype(float)
         
-        # MOM (Momentum)
-        mom = talib.MOM(data, timeperiod=period)
+        # ROC calculation
+        roc = ((close - close.shift(period)) / close.shift(period)) * 100
         
-        # Williams %R
-        willr = talib.WILLR(data.high, data.low, data.close, timeperiod=period)
+        # Momentum calculation
+        mom = close - close.shift(period)
+        
+        # Williams %R calculation
+        highest_high = high.rolling(window=period).max()
+        lowest_low = low.rolling(window=period).min()
+        willr = -100 * (highest_high - close) / (highest_high - lowest_low)
         
         return {
-            'roc': roc.iloc[-1],
-            'momentum': mom.iloc[-1],
-            'willr': willr.iloc[-1]
+            'roc': float(roc.iloc[-1]),
+            'momentum': float(mom.iloc[-1]),
+            'willr': float(willr.iloc[-1])
         }
     
     @staticmethod
@@ -325,13 +354,49 @@ class TechnicalAnalysis:
     @staticmethod
     def identify_patterns(data: pd.DataFrame) -> Dict[str, bool]:
         """Identify candlestick patterns"""
-        patterns = {
-            'doji': talib.CDLDOJI(data.open, data.high, data.low, data.close),
-            'engulfing': talib.CDLENGULFING(data.open, data.high, data.low, data.close),
-            'hammer': talib.CDLHAMMER(data.open, data.high, data.low, data.close),
-            'shooting_star': talib.CDLSHOOTINGSTAR(data.open, data.high, data.low, data.close),
-            'morning_star': talib.CDLMORNINGSTAR(data.open, data.high, data.low, data.close),
-            'evening_star': talib.CDLEVENINGSTAR(data.open, data.high, data.low, data.close)
-        }
+        open_price = data['open'].astype(float)
+        high = data['high'].astype(float)
+        low = data['low'].astype(float)
+        close = data['close'].astype(float)
         
-        return {name: bool(pattern.iloc[-1]) for name, pattern in patterns.items()}  
+        body = close - open_price
+        body_size = abs(body)
+        upper_shadow = high - pd.DataFrame([open_price, close]).max(axis=0)
+        lower_shadow = pd.DataFrame([open_price, close]).min(axis=0) - low
+        
+        avg_price = (high + low) / 2
+        doji_threshold = 0.001
+        
+        patterns = {}
+        
+        # Doji pattern
+        patterns['doji'] = bool(body_size.iloc[-1] <= (avg_price.iloc[-1] * doji_threshold))
+        
+        # Engulfing pattern
+        prev_body = close.shift(1) - open_price.shift(1)
+        bull_engulf = (body > 0) & (open_price < close.shift(1)) & (close > open_price.shift(1))
+        bear_engulf = (body < 0) & (open_price > close.shift(1)) & (close < open_price.shift(1))
+        patterns['engulfing'] = bool((bull_engulf | bear_engulf).iloc[-1])
+        
+        # Hammer pattern
+        patterns['hammer'] = bool((lower_shadow > (2 * body_size)).iloc[-1] & (upper_shadow < body_size).iloc[-1])
+        
+        # Shooting Star pattern
+        patterns['shooting_star'] = bool((upper_shadow > (2 * body_size)).iloc[-1] & (lower_shadow < body_size).iloc[-1])
+        
+        # Morning/Evening Star patterns
+        patterns['morning_star'] = bool(
+            (body.iloc[-3] < 0) &  # First day: long black
+            (body_size.iloc[-2] < body_size.iloc[-3] * 0.3) &  # Second day: small body
+            (body.iloc[-1] > 0) &  # Third day: long white
+            (close.iloc[-1] > (open_price.iloc[-3] + close.iloc[-3]) / 2)  # Close above midpoint
+        )
+        
+        patterns['evening_star'] = bool(
+            (body.iloc[-3] > 0) &  # First day: long white
+            (body_size.iloc[-2] < body_size.iloc[-3] * 0.3) &  # Second day: small body
+            (body.iloc[-1] < 0) &  # Third day: long black
+            (close.iloc[-1] < (open_price.iloc[-3] + close.iloc[-3]) / 2)  # Close below midpoint
+        )
+        
+        return patterns   
