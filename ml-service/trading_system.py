@@ -167,12 +167,15 @@ class TradingSystem:
                         data['symbol'] = symbol
                         
                         # 运行Agent分析
-                        signal = await agent.analyze(data)
-                        
-                        if signal and signal.confidence >= agent.config.confidence_threshold:
-                            # 获取最新价格和订单簿数据
-                            current_price = self.market_data_service.get_latest_price(symbol)
-                            orderbook = self.market_data_service.get_latest_orderbook(symbol)
+                        try:
+                            signal = await agent.analyze(data)
+                            if signal and signal.confidence >= agent.config.confidence_threshold:
+                                # 获取最新价格和订单簿数据
+                                current_price = self.market_data_service.get_latest_price(symbol)
+                                orderbook = self.market_data_service.get_latest_orderbook(symbol)
+                        except Exception as e:
+                            logger.error(f"Error in agent analysis for {symbol}: {str(e)}")
+                            continue
                             
                             if current_price:
                                 # 使用订单簿数据优化执行价格
@@ -365,4 +368,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main()) 
+    asyncio.run(main())      

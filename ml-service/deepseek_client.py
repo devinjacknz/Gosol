@@ -78,27 +78,27 @@ class DeepseekClient:
         
         Please analyze this data and provide a response in the following JSON format:
         {
-            "market_sentiment": "bullish",  // Example: use "bullish", "bearish", or "neutral"
-            "risk_level": 5,  // Example: use a number between 1-10
+            "market_sentiment": "bullish",
+            "risk_level": 5,
             "short_term_prediction": {
-                "target_price": "1.25",  // Example price prediction
-                "timeframe": "24h",  // Example: "4h", "24h", "7d"
+                "target_price": "1.25",
+                "timeframe": "24h",
                 "key_levels": {
-                    "support": "1.20",  // Example support level
-                    "resistance": "1.30"  // Example resistance level
+                    "support": "1.20",
+                    "resistance": "1.30"
                 }
             },
             "key_factors": [
-                "Strong volume increase",  // Example factors
+                "Strong volume increase",
                 "Positive price momentum",
                 "Growing holder base"
             ],
-            "trading_recommendation": "BUY",  // Example: use "BUY", "SELL", or "HOLD"
-            "confidence": 0.75,  // Example: use a number between 0 and 1
+            "trading_recommendation": "BUY",
+            "confidence": 0.75,
             "risk_analysis": {
-                "market_manipulation_risk": "medium",  // Example: use "low", "medium", or "high"
-                "liquidity_risk": "low",  // Example: use "low", "medium", or "high"
-                "volatility_risk": "high"  // Example: use "low", "medium", or "high"
+                "market_manipulation_risk": "medium",
+                "liquidity_risk": "low",
+                "volatility_risk": "high"
             }
         }
 
