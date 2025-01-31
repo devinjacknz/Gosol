@@ -28,6 +28,10 @@ class RiskConfig:
     db_path: str  # 数据库路径
     max_leverage: float  # 最大允许杠杆
     max_position_value: float  # 单个仓位最大价值
+    min_maintenance_margin: float  # 最小维持保证金率
+    funding_rate_interval: int  # 资金费率收取间隔（小时）
+    liquidation_threshold: float  # 强平阈值
+    margin_call_threshold: float  # 追加保证金阈值
 
 @dataclass
 class Position:
@@ -684,4 +688,4 @@ class RiskManager:
                             'funding_rate': position.funding_rate,
                             'next_funding_time': position.next_funding_time.isoformat()
                         }
-                    ) 
+                    )  
