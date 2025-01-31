@@ -18,6 +18,11 @@ class OllamaClient:
         timeout = aiohttp.ClientTimeout(total=30)
         print(f"Sending request to Ollama at {self.base_url}/api/chat...")
         
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/x-ndjson'
+        }
+        
         default_response = {
             'sentiment': 'neutral',
             'risk_level': 5.0,
@@ -43,13 +48,14 @@ class OllamaClient:
                     print("Making POST request to Ollama...")
                     async with session.post(
                         f"{self.base_url}/api/chat",
+                        headers=headers,
                         json={
                             "model": self.model,
                             "messages": [
                                 {"role": "system", "content": "You are a cryptocurrency market analyst specializing in Solana meme coins. You analyze market data and provide structured JSON responses."},
                                 {"role": "user", "content": prompt}
                             ],
-                            "stream": False
+                            "stream": True
                         }
                     ) as response:
                         print(f"Received response with status: {response.status}")
@@ -57,9 +63,27 @@ class OllamaClient:
                             error_text = await response.text()
                             print(f"Error response from Ollama: {error_text}")
                             raise Exception(f"Ollama API error: {error_text}")
-                        print("Parsing response...")
-                        result = await response.json()
-                        return self._parse_analysis_response(result)
+                        
+                        print("Reading streaming response...")
+                        full_response = ""
+                        async for line in response.content:
+                            if not line:
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                                if chunk.get("done", False):
+                                    break
+                                content = chunk.get("message", {}).get("content", "")
+                                if content:
+                                    full_response += content
+                                    print("Received chunk:", content[:50], "...")
+                                    await asyncio.sleep(0.1)  # Small delay between chunks
+                            except json.JSONDecodeError as e:
+                                print(f"Failed to decode JSON: {e}")
+                        
+                        print("Parsing complete response...")
+                        try:
+                            return self._parse_analysis_response({"response": full_response})
             except Exception as e:
                 if attempt == self.max_retries - 1:
                     return default_response
