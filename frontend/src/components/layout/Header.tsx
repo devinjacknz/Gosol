@@ -1,3 +1,5 @@
+'use client';
+
 import { BellIcon } from '@heroicons/react/24/outline';
 import { useTradingStore } from '../../store';
 import { formatCurrency, formatDelay, getRiskLevelColor } from '../../utils/format';
@@ -98,4 +100,4 @@ export default function Header() {
       </div>
     </header>
   );
-} 
+}  
