@@ -1,5 +1,6 @@
 import os
 import aiohttp
+import asyncio
 from typing import Dict, List, Any, Optional
 import json
 from ollama_client import OllamaClient
@@ -77,27 +78,27 @@ class DeepseekClient:
         
         Please analyze this data and provide a response in the following JSON format:
         {
-            "market_sentiment": "bullish/bearish/neutral",
-            "risk_level": <number between 1-10>,
+            "market_sentiment": "bullish",  // Example: use "bullish", "bearish", or "neutral"
+            "risk_level": 5,  // Example: use a number between 1-10
             "short_term_prediction": {
-                "target_price": <predicted price>,
-                "timeframe": "<timeframe in hours/days>",
+                "target_price": "1.25",  // Example price prediction
+                "timeframe": "24h",  // Example: "4h", "24h", "7d"
                 "key_levels": {
-                    "support": <support price level>,
-                    "resistance": <resistance price level>
+                    "support": "1.20",  // Example support level
+                    "resistance": "1.30"  // Example resistance level
                 }
             },
             "key_factors": [
-                "<factor 1>",
-                "<factor 2>",
-                "..."
+                "Strong volume increase",  // Example factors
+                "Positive price momentum",
+                "Growing holder base"
             ],
-            "trading_recommendation": "BUY/SELL/HOLD",
-            "confidence": <number between 0-1>,
+            "trading_recommendation": "BUY",  // Example: use "BUY", "SELL", or "HOLD"
+            "confidence": 0.75,  // Example: use a number between 0 and 1
             "risk_analysis": {
-                "market_manipulation_risk": "low/medium/high",
-                "liquidity_risk": "low/medium/high",
-                "volatility_risk": "low/medium/high"
+                "market_manipulation_risk": "medium",  // Example: use "low", "medium", or "high"
+                "liquidity_risk": "low",  // Example: use "low", "medium", or "high"
+                "volatility_risk": "high"  // Example: use "low", "medium", or "high"
             }
         }
 
