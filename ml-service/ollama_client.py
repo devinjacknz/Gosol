@@ -80,10 +80,16 @@ class OllamaClient:
                                     await asyncio.sleep(0.1)  # Small delay between chunks
                             except json.JSONDecodeError as e:
                                 print(f"Failed to decode JSON: {e}")
+                                continue
                         
                         print("Parsing complete response...")
-                        try:
-                            return self._parse_analysis_response({"response": full_response})
+                        return self._parse_analysis_response({"response": full_response})
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    print(f"Failed after {self.max_retries} attempts: {str(e)}")
+                    return default_response
+                print(f"Attempt {attempt + 1} failed: {str(e)}")
+                await asyncio.sleep(self.retry_delay)
             except Exception as e:
                 if attempt == self.max_retries - 1:
                     return default_response
