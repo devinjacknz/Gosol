@@ -73,7 +73,7 @@ export default function AssetDetails() {
           ].map((type) => (
             <button
               key={type.value}
-              onClick={() => setAssetType(type.value as any)}
+              onClick={() => setAssetType(type.value as 'all' | 'spot' | 'contract')}
               className={`px-4 py-2 rounded-lg ${
                 assetType === type.value
                   ? 'bg-blue-500 text-white'
@@ -143,4 +143,4 @@ export default function AssetDetails() {
       </div>
     </div>
   );
-} 
+}     

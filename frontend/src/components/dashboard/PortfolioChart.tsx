@@ -37,7 +37,17 @@ const generateData = () => {
   return data;
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    value: number;
+    name: string;
+    dataKey: string;
+  }>;
+  label?: string;
+}
+
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white p-4 border border-gray-200 rounded-lg shadow-lg">
@@ -73,7 +83,7 @@ export default function PortfolioChart() {
         ].map((range) => (
           <button
             key={range.value}
-            onClick={() => setTimeRange(range.value as any)}
+            onClick={() => setTimeRange(range.value as '1d' | '7d' | '30d' | '90d')}
             className={`px-3 py-1 rounded-lg text-sm ${
               timeRange === range.value
                 ? 'bg-blue-500 text-white'
@@ -150,4 +160,4 @@ export default function PortfolioChart() {
       </div>
     </div>
   );
-} 
+}     

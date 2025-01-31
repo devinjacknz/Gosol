@@ -2,9 +2,10 @@
 
 import { useTradingStore } from '@/store';
 import { formatNumber, formatCurrency, formatPercent, formatMarginType } from '@/utils/format';
+import type { Position, MarketData, TradingStore } from '@/types/trading';
 
 export default function Positions() {
-  const { accountInfo, marketData } = useTradingStore();
+  const { accountInfo, marketData } = useTradingStore() as TradingStore;
 
   const positions = accountInfo?.positions || [];
 
@@ -14,7 +15,7 @@ export default function Positions() {
 
       {positions.length > 0 ? (
         <div className="space-y-4">
-          {positions.map((position) => {
+          {positions.map((position: Position) => {
             const currentPrice = marketData[position.symbol]?.price || position.entryPrice;
             const pnlPercent = ((currentPrice - position.entryPrice) / position.entryPrice) * 
               (position.direction === 'long' ? 1 : -1);
@@ -115,4 +116,4 @@ export default function Positions() {
       )}
     </div>
   );
-} 
+}  

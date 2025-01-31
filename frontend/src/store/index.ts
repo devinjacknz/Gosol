@@ -1,10 +1,10 @@
 import { create } from 'zustand'
-import { AccountInfo, MarketData, SystemStatus, Trade, RiskAlert } from '../types'
+import { AccountInfo, MarketData, SystemStatus, Trade, RiskAlert } from '../types/trading'
 
 interface TradingStore {
   // 市场数据
-  marketData: Record<string, MarketData>;
-  setMarketData: (symbol: string, data: MarketData) => void;
+  marketData: MarketData;
+  setMarketData: (symbol: string, data: Partial<MarketData[string]>) => void;
   
   // 账户信息
   accountInfo: AccountInfo | null;
@@ -31,9 +31,15 @@ interface TradingStore {
 export const useTradingStore = create<TradingStore>((set) => ({
   // 市场数据
   marketData: {},
-  setMarketData: (symbol, data) => 
+  setMarketData: (symbol: string, data: Partial<MarketData[string]>) => 
     set((state) => ({
-      marketData: { ...state.marketData, [symbol]: data }
+      marketData: {
+        ...state.marketData,
+        [symbol]: {
+          ...(state.marketData[symbol] || {}),
+          ...data
+        }
+      }
     })),
   
   // 账户信息
@@ -67,4 +73,4 @@ export const useTradingStore = create<TradingStore>((set) => ({
   // 选中的交易对
   selectedSymbol: 'BTC/USDT',
   setSelectedSymbol: (symbol) => set({ selectedSymbol: symbol }),
-})); 
+}));    

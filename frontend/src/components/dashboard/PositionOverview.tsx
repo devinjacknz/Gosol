@@ -4,11 +4,40 @@ import { useTradingStore } from '@/store';
 import { formatNumber, formatCurrency, formatPercent } from '@/utils/format';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
+interface Position {
+  symbol: string;
+  size: number;
+  entryPrice: number;
+  direction: 'long' | 'short';
+}
+
+interface MarketData {
+  [symbol: string]: {
+    price: number;
+  };
+}
+
+interface AccountInfo {
+  positions: Position[];
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    payload: {
+      symbol: string;
+      value: number;
+      percentage: number;
+      direction: 'long' | 'short';
+    };
+  }>;
+}
+
 export default function PositionOverview() {
-  const { accountInfo, marketData } = useTradingStore();
+  const { accountInfo, marketData } = useTradingStore() as { accountInfo: AccountInfo | null; marketData: MarketData };
 
   const positions = accountInfo?.positions || [];
-  const totalValue = positions.reduce((sum, pos) => {
+  const totalValue = positions.reduce((sum: number, pos: Position) => {
     const currentPrice = marketData[pos.symbol]?.price || pos.entryPrice;
     return sum + Math.abs(pos.size * currentPrice);
   }, 0);
@@ -30,7 +59,7 @@ export default function PositionOverview() {
   // 饼图颜色
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
@@ -112,4 +141,4 @@ export default function PositionOverview() {
       )}
     </div>
   );
-} 
+}  

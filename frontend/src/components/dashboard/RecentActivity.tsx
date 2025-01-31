@@ -23,6 +23,11 @@ export default function RecentActivity() {
                   {trade.type === 'open'
                     ? (trade.direction === 'buy' ? '开多' : '开空')
                     : (trade.direction === 'buy' ? '平空' : '平多')}
+                  {trade.type === 'close' && trade.pnl != null && (
+                    <span className={trade.pnl > 0 ? 'text-green-500' : 'text-red-500'}>
+                      {trade.pnl > 0 ? '+' : ''}{formatCurrency(trade.pnl)}
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="text-sm text-gray-500">
@@ -33,17 +38,11 @@ export default function RecentActivity() {
               <div className="font-medium">
                 {formatNumber(trade.size, 4)} {trade.symbol.split('/')[0]}
               </div>
-              <div className={`text-sm ${
-                trade.pnl > 0
-                  ? 'text-green-500'
-                  : trade.pnl < 0
-                  ? 'text-red-500'
-                  : 'text-gray-500'
-              }`}>
-                {trade.type === 'close' && (
-                  <>
+              <div className="text-sm">
+                {trade.type === 'close' && trade.pnl != null && (
+                  <span className={trade.pnl > 0 ? 'text-green-500' : trade.pnl < 0 ? 'text-red-500' : 'text-gray-500'}>
                     {trade.pnl > 0 ? '+' : ''}{formatCurrency(trade.pnl)}
-                  </>
+                  </span>
                 )}
               </div>
             </div>
@@ -64,4 +63,4 @@ export default function RecentActivity() {
       )}
     </div>
   );
-} 
+}      

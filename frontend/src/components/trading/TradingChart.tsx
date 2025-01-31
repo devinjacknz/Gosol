@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { createChart, IChartApi, ColorType } from 'lightweight-charts';
+import { createChart, IChartApi, ColorType, HistogramSeriesOptions } from 'lightweight-charts';
 import { useTradingStore } from '@/store';
 
 interface TradingChartProps {
@@ -71,11 +71,16 @@ export default function TradingChart({ symbol }: TradingChartProps) {
       priceFormat: {
         type: 'volume',
       },
-      priceScaleId: '',
+      priceScaleId: 'volume',
+    });
+
+    // Configure the price scale for volume
+    chart.priceScale('volume').applyOptions({
       scaleMargins: {
         top: 0.8,
         bottom: 0,
       },
+      visible: false,
     });
 
     // 设置初始数据
@@ -123,4 +128,4 @@ export default function TradingChart({ symbol }: TradingChartProps) {
   return (
     <div ref={chartContainerRef} className="w-full h-full" />
   );
-} 
+}      

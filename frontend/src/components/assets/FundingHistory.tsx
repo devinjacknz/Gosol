@@ -87,7 +87,7 @@ export default function FundingHistory() {
           ].map((t) => (
             <button
               key={t.value}
-              onClick={() => setType(t.value as any)}
+              onClick={() => setType(t.value as 'all' | 'deposit' | 'withdrawal')}
               className={`px-4 py-2 rounded-lg ${
                 type === t.value
                   ? 'bg-blue-500 text-white'
@@ -108,7 +108,7 @@ export default function FundingHistory() {
           ].map((t) => (
             <button
               key={t.value}
-              onClick={() => setTimeRange(t.value as any)}
+              onClick={() => setTimeRange(t.value as '1d' | '1w' | '1m' | '3m' | 'all')}
               className={`px-4 py-2 rounded-lg ${
                 timeRange === t.value
                   ? 'bg-blue-500 text-white'
@@ -180,4 +180,4 @@ export default function FundingHistory() {
       )}
     </div>
   );
-} 
+}     

@@ -60,10 +60,7 @@ export const formatFileSize = (bytes: number): string => {
 
 // 格式化延迟时间
 export const formatDelay = (ms: number): string => {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  return `${formatNumber(ms / 1000, 1)}s`;
+  return ms < 1000 ? `${ms}ms` : `${formatNumber(ms / 1000, 1)}s`;
 };
 
 // 格式化风险等级
@@ -84,11 +81,12 @@ export const getPriceChangeColor = (change: number): string => {
 };
 
 // 获取风险等级的颜色类名
-export const getRiskLevelColor = (severity: 'low' | 'medium' | 'high'): string => {
+export const getRiskLevelColor = (severity: 'low' | 'medium' | 'high' | 'critical'): string => {
   const colors = {
     low: 'text-green-500',
     medium: 'text-yellow-500',
     high: 'text-red-500',
+    critical: 'text-red-600',
   };
   return colors[severity];
-};  
+};        
