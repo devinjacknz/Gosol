@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import os
+from datetime import datetime
 import pandas as pd
+import pytest
 from typing import Dict, Any, Optional, Callable
 from unittest.mock import patch, MagicMock, AsyncMock
 from trading_system import TradingSystem
-from agent_system import AgentSystem, AgentConfig
+from agent_system import AgentSystem, AgentConfig, TradeSignal
 from trade_executor import TradeExecutor
 from risk_management import RiskManager, RiskConfig
 from market_data_service import MarketConfig
@@ -54,7 +56,21 @@ class MockAgentSystem:
         self.agents = {}
     
     def add_agent(self, config: AgentConfig):
-        self.agents[config.name] = MagicMock()
+        mock_agent = MagicMock()
+        mock_agent.config = config
+        mock_agent.analyze = MagicMock(return_value=TradeSignal(
+            symbol=config.symbol,
+            direction='buy',
+            size=0.1,
+            stop_loss=45000.0,
+            take_profit=55000.0,
+            confidence=0.8,
+            agent_name=config.name,
+            price=50000.0,
+            timestamp=datetime.now(),
+            metadata={}
+        ))
+        self.agents[config.name] = mock_agent
     
     def get_system_metrics(self):
         return {'total_agents': len(self.agents)}
@@ -231,6 +247,7 @@ class MockMarketDataService:
             return None
         return 50250.0
 
+@pytest.mark.asyncio
 async def test_service_communication():
     with patch('trading_system.Config', MockConfig), \
          patch('trading_system.MarketDataService', MockMarketDataService), \

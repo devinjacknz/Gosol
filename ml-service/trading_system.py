@@ -32,13 +32,13 @@ class TradingSystem:
         # 初始化市场数据服务
         self.market_data_service = MarketDataService(MarketConfig(
             exchange=exchange_config['name'],
-            symbols=market_config['symbols'],
-            timeframes=market_config['timeframes'],
+            symbols=market_config.symbols,
+            timeframes=market_config.timeframes,
             api_key=exchange_config['api_key'],
             api_secret=exchange_config['api_secret'],
-            cache_size=market_config['cache_size'],
-            update_interval=market_config['update_interval'],
-            db_path=market_config['db_path']
+            cache_size=market_config.cache_size,
+            update_interval=market_config.update_interval,
+            db_path=market_config.db_path
         ))
         
         # 初始化Agent系统
@@ -450,4 +450,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main())                                  
+    asyncio.run(main())                                    
