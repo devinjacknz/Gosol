@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+    environment:
+      POSTGRES_DB: solmeme_trader_test
+
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+
+  backend:
+    extends:
+      file: docker-compose.yml
+      service: backend
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/solmeme_trader_test?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+      - SOLANA_RPC_ENDPOINT=https://api.testnet.solana.com
+      - ML_SERVICE_URL=http://ml-service:8000
+      - GIN_MODE=debug
+      - DYDX_API_ENDPOINT=https://api.stage.dydx.exchange
+      - HYPERLIQUID_API_ENDPOINT=https://api.hyperliquid-testnet.xyz
+      - LOG_LEVEL=debug
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  ml-service:
+    extends:
+      file: docker-compose.yml
+      service: ml-service
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - LOG_LEVEL=debug
+      - USE_TEST_NETWORK=true
+      - DYDX_TEST_MODE=true
+      - HYPERLIQUID_TEST_MODE=true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  frontend:
+    extends:
+      file: docker-compose.yml
+      service: frontend
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://backend:8080
+      - NEXT_PUBLIC_ENV=test
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
