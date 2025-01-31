@@ -1,8 +1,8 @@
 import os
 import aiohttp
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import json
-from .ollama_client import OllamaClient
+from ollama_client import OllamaClient
 
 class DeepseekClient:
     def __init__(self, api_key: Optional[str] = None):
