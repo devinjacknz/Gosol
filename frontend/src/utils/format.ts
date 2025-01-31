@@ -1,5 +1,9 @@
 import { format } from 'date-fns';
 
+export const formatDateTime = (date: string | number | Date): string => {
+  return format(new Date(date), 'yyyy-MM-dd HH:mm:ss');
+};
+
 // 格式化数字
 export const formatNumber = (num: number, decimals = 2): string => {
   return new Intl.NumberFormat('en-US', {
@@ -87,4 +91,4 @@ export const getRiskLevelColor = (severity: 'low' | 'medium' | 'high'): string =
     high: 'text-red-500',
   };
   return colors[severity];
-}; 
+};  
