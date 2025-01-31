@@ -47,6 +47,12 @@ class HyperliquidClient:
                 if attempt == self.max_retries - 1:
                     raise Exception(f"Failed to fetch funding rate after {self.max_retries} attempts: {str(e)}")
                 await asyncio.sleep(self.retry_delay)
+        return {
+            'funding_rate': 0.0,
+            'mark_price': 0.0,
+            'index_price': 0.0,
+            'next_funding_time': datetime.now(timezone.utc)
+        }
     
     async def get_open_interest(self, market: str) -> float:
         url = self.testnet_url if self.use_testnet else self.mainnet_url
@@ -68,3 +74,4 @@ class HyperliquidClient:
                 if attempt == self.max_retries - 1:
                     raise Exception(f"Failed to fetch open interest after {self.max_retries} attempts: {str(e)}")
                 await asyncio.sleep(self.retry_delay)
+        return 0.0

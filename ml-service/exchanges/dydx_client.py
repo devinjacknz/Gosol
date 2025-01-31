@@ -43,6 +43,12 @@ class DydxClient:
                 if attempt == max_retries - 1:
                     raise Exception(f"Failed to fetch funding rate after {max_retries} attempts: {str(e)}")
                 await asyncio.sleep(retry_delay)
+        return {
+            'funding_rate': 0.0,
+            'mark_price': 0.0,
+            'index_price': 0.0,
+            'next_funding_time': datetime.now(timezone.utc)
+        }
     
     async def get_open_interest(self, market: str) -> float:
         max_retries = 3
@@ -62,3 +68,4 @@ class DydxClient:
                 if attempt == max_retries - 1:
                     raise Exception(f"Failed to fetch open interest after {max_retries} attempts: {str(e)}")
                 await asyncio.sleep(retry_delay)
+        return 0.0

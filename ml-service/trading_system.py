@@ -11,6 +11,7 @@ from datetime import datetime
 from .config import Config
 import pandas as pd
 from ml_agent import DeepSeekAgent
+from agent_system import TradeSignal
 
 # 配置日志
 logging.basicConfig(**Config.get_log_config())
@@ -334,14 +335,24 @@ class TradingSystem:
         
         # 执行交易
         try:
-            order = self.trade_executor.execute_order(position)
-            if order and order.get('status') == 'filled':
-                self.risk_manager.positions[symbol] = position
-                logger.info(f"New position opened: {symbol}")
+            signal = TradeSignal(
+                symbol=symbol,
+                direction=position.direction,
+                size=position.size,
+                stop_loss=position.stop_loss,
+                take_profit=position.take_profit,
+                confidence=confidence,
+                agent_name="SYSTEM",
+                price=position.current_price,
+                timestamp=datetime.now(),
+                metadata={}
+            )
+            await self.trade_executor.process_signal(signal, position.current_price)
+            logger.info(f"New position opened: {symbol}")
         except Exception as e:
             logger.error(f"Failed to execute order: {e}")
     
-    def update(self):
+    async def update(self):
         """更新系统状态"""
         # 更新市场数据
         market_data = {
@@ -358,19 +369,21 @@ class TradingSystem:
         risk_report = self.risk_manager.get_risk_report()
         if risk_report['portfolio_summary']['drawdown'] > self.risk_manager.config.max_drawdown:
             logger.warning("Maximum drawdown exceeded")
-            self._handle_risk_event('max_drawdown_exceeded')
+            await self._handle_risk_event('max_drawdown_exceeded')
         
         if risk_report['portfolio_summary']['daily_pnl'] < -self.risk_manager.config.daily_loss_limit:
             logger.warning("Daily loss limit exceeded")
-            self._handle_risk_event('daily_loss_limit_exceeded')
+            await self._handle_risk_event('daily_loss_limit_exceeded')
     
-    def _handle_risk_event(self, event_type: str):
+    async def _handle_risk_event(self, event_type: str):
         """处理风险事件"""
         if event_type in ['max_drawdown_exceeded', 'daily_loss_limit_exceeded']:
             # 关闭所有仓位
             for symbol, position in list(self.risk_manager.positions.items()):
                 try:
-                    self.trade_executor.close_position(symbol)
+                    current_price = self.market_data_service.get_latest_price(symbol)
+                    if current_price and isinstance(position, Position):
+                        await self.trade_executor._close_position(position, current_price, "RISK_EVENT")
                 except Exception as e:
                     logger.error(f"Failed to close position {symbol}: {e}")
             
@@ -431,4 +444,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main())                    
+    asyncio.run(main())                          
