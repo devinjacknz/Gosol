@@ -77,17 +77,17 @@ class DeepseekClient:
         - Holders: {token_data.get('holders')}
         
         Please analyze this data and provide a response in the following JSON format:
-        {
+        {{
             "market_sentiment": "bullish",
             "risk_level": 5,
-            "short_term_prediction": {
+            "short_term_prediction": {{
                 "target_price": "1.25",
                 "timeframe": "24h",
-                "key_levels": {
+                "key_levels": {{
                     "support": "1.20",
                     "resistance": "1.30"
-                }
-            },
+                }}
+            }},
             "key_factors": [
                 "Strong volume increase",
                 "Positive price momentum",
@@ -95,12 +95,12 @@ class DeepseekClient:
             ],
             "trading_recommendation": "BUY",
             "confidence": 0.75,
-            "risk_analysis": {
+            "risk_analysis": {{
                 "market_manipulation_risk": "medium",
                 "liquidity_risk": "low",
                 "volatility_risk": "high"
-            }
-        }
+            }}
+        }}
 
         Ensure your response is a valid JSON object with all fields properly formatted.
         """
