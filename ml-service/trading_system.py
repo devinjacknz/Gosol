@@ -4,15 +4,17 @@ from typing import Dict, List
 from datetime import datetime
 from agent_system import AgentSystem, AgentConfig
 from trade_executor import TradeExecutor
-from market_data_service import MarketDataService, MarketConfig
-from risk_management import RiskManager, RiskConfig, Position
+import logging
+import asyncio
 from typing import Dict, Optional, List, Any, Union
 from datetime import datetime
-from .config import Config
 import pandas as pd
+from config import Config
+from market_data_service import MarketDataService, MarketConfig
+from risk_management import RiskManager, RiskConfig, Position, ContractPosition
 from ml_agent import DeepSeekAgent
-from agent_system import TradeSignal
-from risk_management import Position, ContractPosition
+from agent_system import TradeSignal, AgentSystem, AgentConfig
+from trade_executor import TradeExecutor
 
 # 配置日志
 logging.basicConfig(**Config.get_log_config())
@@ -386,7 +388,8 @@ class TradingSystem:
                     current_price = self.market_data_service.get_latest_price(symbol)
                     if current_price:
                         if isinstance(position, (Position, ContractPosition)):
-                            await self.trade_executor._close_position(position, current_price, "RISK_EVENT")
+                            if isinstance(position, Position):
+                                await self.trade_executor._close_position(position, current_price, "RISK_EVENT")
                 except Exception as e:
                     logger.error(f"Failed to close position {symbol}: {e}")
             
@@ -447,4 +450,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main())                              
+    asyncio.run(main())                                  
