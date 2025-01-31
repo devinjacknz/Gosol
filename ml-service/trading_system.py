@@ -6,7 +6,9 @@ from agent_system import AgentSystem, AgentConfig
 from trade_executor import TradeExecutor
 from market_data_service import MarketDataService, MarketConfig
 from risk_management import RiskManager, RiskConfig, Position
-from config import Config
+from typing import Dict, Optional, List, Any
+from datetime import datetime
+from .config import Config
 import pandas as pd
 from ml_agent import DeepSeekAgent
 
@@ -152,45 +154,78 @@ class TradingSystem:
     
     async def _analysis_loop(self) -> None:
         """市场分析循环"""
+        logger.info("Starting market analysis loop")
         while self.is_running:
             try:
                 for symbol in self.market_data_service.config.symbols:
+                    logger.info(f"Starting analysis cycle for {symbol}")
+                    
                     # 获取每个Agent需要的时间周期数据
                     for agent in self.agent_system.agents.values():
                         timeframe = agent.config.timeframe
-                        data = self.market_data_service.get_ohlcv(symbol, timeframe)
-                        
-                        if data.empty:
-                            continue
-                        
-                        # 添加symbol信息到数据中
-                        data['symbol'] = symbol
-                        
-                        # 运行Agent分析
                         try:
-                            signal = await agent.analyze(data)
-                            if signal and signal.confidence >= agent.config.confidence_threshold:
-                                # 获取最新价格和订单簿数据
-                                current_price = self.market_data_service.get_latest_price(symbol)
-                                orderbook = self.market_data_service.get_latest_orderbook(symbol)
-                        except Exception as e:
-                            logger.error(f"Error in agent analysis for {symbol}: {str(e)}")
-                            continue
+                            data = self.market_data_service.get_ohlcv(symbol, timeframe)
+                            if data.empty:
+                                logger.warning(f"No OHLCV data available for {symbol} on {timeframe}")
+                                continue
+                                
+                            logger.info(f"Retrieved OHLCV data for {symbol} ({len(data)} rows)")
+                            data['symbol'] = symbol
                             
-                            if current_price:
-                                # 使用订单簿数据优化执行价格
+                            # 运行Agent分析
+                            logger.info(f"Running {agent.config.name} analysis for {symbol}")
+                            signal = agent.analyze(data)
+                            
+                            if not signal:
+                                logger.info(f"No signal generated for {symbol}")
+                                continue
+                                
+                            if signal.confidence < agent.config.confidence_threshold:
+                                logger.info(f"Signal confidence {signal.confidence} below threshold for {symbol}")
+                                continue
+                                
+                            logger.info(f"Got valid signal for {symbol} with confidence {signal.confidence}")
+                            
+                            # 获取市场数据
+                            current_price = self.market_data_service.get_latest_price(symbol)
+                            if current_price is None:
+                                logger.error(f"Failed to get latest price for {symbol}")
+                                continue
+                                
+                            orderbook = self.market_data_service.get_market_depth(symbol)
+                            if not orderbook or not orderbook.get('bids'):
+                                logger.error(f"Failed to get valid orderbook for {symbol}")
+                                continue
+                                
+                            logger.info(f"Market data received - Price: {current_price}, Orderbook depth: {len(orderbook['bids'])}")
+                            
+                            # 获取风险指标
+                            volatility = self.market_data_service.get_volatility(symbol)
+                            atr = self.market_data_service.get_atr(symbol)
+                            logger.info(f"Risk metrics - Volatility: {volatility}, ATR: {atr}")
+                            
+                            # 处理交易信号
+                            try:
                                 adjusted_price = self._optimize_execution_price(
                                     signal.direction,
                                     current_price,
                                     orderbook
                                 )
+                                logger.info(f"Optimized price for {symbol}: {adjusted_price}")
                                 
-                                # 执行交易
                                 await self.trade_executor.process_signal(
                                     signal,
                                     adjusted_price
                                 )
-                
+                                logger.info(f"Successfully processed trade signal for {symbol}")
+                            except Exception as e:
+                                logger.error(f"Error processing trade for {symbol}: {str(e)}")
+                                continue
+                                
+                        except Exception as e:
+                            logger.error(f"Error in analysis cycle for {symbol}: {str(e)}")
+                            continue
+                            
                 self.last_update = datetime.now()
                 await asyncio.sleep(1)  # 每秒分析一次
                 
@@ -218,7 +253,7 @@ class TradingSystem:
         
         return current_price
     
-    def process_signal(self, signal: Dict):
+    async def process_signal(self, signal: Dict):
         """处理交易信号"""
         symbol = signal['symbol']
         direction = signal['direction']
@@ -226,27 +261,55 @@ class TradingSystem:
         
         # 获取市场数据
         current_price = self.market_data_service.get_latest_price(symbol)
+        if current_price is None:
+            logger.error(f"Cannot process signal: no current price for {symbol}")
+            return
+            
         volatility = self.market_data_service.get_volatility(symbol)
+        if volatility is None:
+            logger.error(f"Cannot process signal: no volatility data for {symbol}")
+            return
+            
         atr = self.market_data_service.get_atr(symbol)
+        if atr is None:
+            logger.error(f"Cannot process signal: no ATR data for {symbol}")
+            return
+            
+        logger.info(f"Processing signal for {symbol} - Price: {current_price}, Vol: {volatility}, ATR: {atr}")
         
         # 计算止损止盈价格
+        stop_loss_mult = float(self.risk_manager.config.stop_loss_atr)
+        take_profit_mult = float(self.risk_manager.config.take_profit_atr)
+        
         if direction == 'buy':
-            stop_loss = current_price - atr * self.risk_manager.config.stop_loss_atr
-            take_profit = current_price + atr * self.risk_manager.config.take_profit_atr
+            stop_loss = current_price - (atr * stop_loss_mult)
+            take_profit = current_price + (atr * take_profit_mult)
         else:
-            stop_loss = current_price + atr * self.risk_manager.config.stop_loss_atr
-            take_profit = current_price - atr * self.risk_manager.config.take_profit_atr
+            stop_loss = current_price + (atr * stop_loss_mult)
+            take_profit = current_price - (atr * take_profit_mult)
+            
+        logger.info(f"Calculated prices - Stop: {stop_loss}, Take: {take_profit}")
         
         # 计算建议仓位大小
-        position_size = self.risk_manager.calculate_position_size(
-            current_price, stop_loss, volatility
-        )
-        
+        try:
+            position_size = self.risk_manager.calculate_position_size(
+                float(current_price), float(stop_loss), float(volatility)
+            )
+            logger.info(f"Calculated position size: {position_size}")
+        except Exception as e:
+            logger.error(f"Failed to calculate position size: {str(e)}")
+            return
+            
         # 检查风险限制
-        if not self.risk_manager.check_position_risk(
-            symbol, direction, position_size, current_price
-        ):
-            logger.warning(f"Risk check failed for {symbol}")
+        try:
+            if not self.risk_manager.check_position_risk(
+                symbol, direction, float(position_size), float(current_price)
+            ):
+                logger.warning(f"Risk check failed for {symbol}")
+                return
+            logger.info(f"Risk check passed for {symbol}")
+        except Exception as e:
+            logger.error(f"Failed risk check: {str(e)}")
             return
         
         # 创建新仓位
@@ -271,8 +334,8 @@ class TradingSystem:
         
         # 执行交易
         try:
-            order = self.execute_order(position)
-            if order['status'] == 'filled':
+            order = self.trade_executor.execute_order(position)
+            if order and order.get('status') == 'filled':
                 self.risk_manager.positions[symbol] = position
                 logger.info(f"New position opened: {symbol}")
         except Exception as e:
@@ -307,7 +370,7 @@ class TradingSystem:
             # 关闭所有仓位
             for symbol, position in list(self.risk_manager.positions.items()):
                 try:
-                    self.close_position(symbol)
+                    self.trade_executor.close_position(symbol)
                 except Exception as e:
                     logger.error(f"Failed to close position {symbol}: {e}")
             
@@ -327,7 +390,7 @@ class TradingSystem:
             'market_data': {
                 symbol: {
                     'last_price': self.market_data_service.get_latest_price(symbol),
-                    'spread': self.market_data_service.calculate_spread(symbol),
+                    'spread': self.market_data_service.get_market_depth(symbol)['asks'][0][0] - self.market_data_service.get_market_depth(symbol)['bids'][0][0],
                     'vwap': self.market_data_service.calculate_vwap(symbol)
                 }
                 for symbol in self.market_data_service.config.symbols
@@ -368,4 +431,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main())      
+    asyncio.run(main())                    

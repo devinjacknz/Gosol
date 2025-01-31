@@ -1,10 +1,10 @@
 import logging
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Union, Callable
+from typing import Dict, List, Optional, Union, Callable, Any, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-import websockets.client
+from websockets.client import WebSocketClientProtocol
 import ccxt.async_support as ccxt
 import asyncio
 import json
@@ -56,7 +56,7 @@ class MarketDataService:
         self.perpetual_cache: Dict[str, Dict] = {}
         
         # WebSocket连接
-        self.ws_connections: Dict[str, websockets.client.WebSocketClientProtocol] = {}
+        self.ws_connections: Dict[str, WebSocketClientProtocol] = {}
         self.ws_subscriptions: Dict[str, List[str]] = {}
         
         # 事件订阅者
@@ -241,7 +241,7 @@ class MarketDataService:
             except Exception as e:
                 logger.error(f"Error starting WebSocket for {symbol}: {str(e)}")
     
-    async def _handle_ws_messages(self, symbol: str, ws: websockets.client.WebSocketClientProtocol):
+    async def _handle_ws_messages(self, symbol: str, ws: WebSocketClientProtocol):
         """处理WebSocket消息"""
         try:
             async for message in ws:
@@ -293,18 +293,18 @@ class MarketDataService:
                             
                 # 更新永续合约数据
                 await self.update_perpetual_data()
+                
+                # 更新订单簿
+                if not self.ws_connections.get(symbol):
+                    orderbook = await self.exchange.fetch_order_book(symbol)
+                    self.orderbook_cache[symbol] = {
+                        'timestamp': pd.Timestamp.now(),
+                        'bids': orderbook['bids'],
+                        'asks': orderbook['asks']
+                    }
                     
-                    # 更新订单簿
-                    if not self.ws_connections.get(symbol):
-                        orderbook = await self.exchange.fetch_order_book(symbol)
-                        self.orderbook_cache[symbol] = {
-                            'timestamp': pd.Timestamp.now(),
-                            'bids': orderbook['bids'],
-                            'asks': orderbook['asks']
-                        }
-                        
-                        # 通知订阅者
-                        await self._notify_subscribers('orderbook', symbol, self.orderbook_cache[symbol])
+                    # 通知订阅者
+                    await self._notify_subscribers('orderbook', symbol, self.orderbook_cache[symbol])
                 
                 await asyncio.sleep(self.config.update_interval)
                 
@@ -399,10 +399,13 @@ class MarketDataService:
                   start_time: Optional[datetime] = None,
                   end_time: Optional[datetime] = None) -> pd.DataFrame:
         """获取K线数据"""
+        logger.info(f"Fetching OHLCV data for {symbol} on {timeframe}")
         if start_time is None:
             # 返回缓存数据
             data = list(self.ohlcv_cache[symbol][timeframe])
-            return pd.DataFrame(data)
+            df = pd.DataFrame(data)
+            logger.info(f"Retrieved {len(df)} OHLCV records from cache for {symbol}")
+            return df
         
         # 从数据库查询
         with sqlite3.connect(self.db_path) as conn:
@@ -412,10 +415,10 @@ class MarketDataService:
                 AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp
             """
-            return pd.read_sql_query(
-                query, conn,
-                params=(symbol, timeframe, start_time, end_time)
-            )
+            params: Tuple = (symbol, timeframe, start_time.isoformat() if start_time else None, end_time.isoformat() if end_time else None)
+            df = pd.read_sql_query(query, conn, params=params)
+            logger.info(f"Retrieved {len(df)} OHLCV records from database for {symbol}")
+            return df
     
     def get_orderbook(self, symbol: str) -> Dict:
         """获取订单簿"""
@@ -425,10 +428,13 @@ class MarketDataService:
                   start_time: Optional[datetime] = None,
                   end_time: Optional[datetime] = None) -> pd.DataFrame:
         """获取交易数据"""
+        logger.info(f"Fetching trade data for {symbol}")
         if start_time is None:
             # 返回缓存数据
             data = list(self.trades_cache[symbol])
-            return pd.DataFrame(data)
+            df = pd.DataFrame(data)
+            logger.info(f"Retrieved {len(df)} trade records from cache for {symbol}")
+            return df
         
         # 从数据库查询
         with sqlite3.connect(self.db_path) as conn:
@@ -438,15 +444,18 @@ class MarketDataService:
                 AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp
             """
-            return pd.read_sql_query(
-                query, conn,
-                params=(symbol, start_time, end_time)
-            )
+            params: Tuple = (symbol, start_time.isoformat() if start_time else None, end_time.isoformat() if end_time else None)
+            df = pd.read_sql_query(query, conn, params=params)
+            logger.info(f"Retrieved {len(df)} trade records from database for {symbol}")
+            return df
     
     def get_latest_price(self, symbol: str) -> Optional[float]:
         """获取最新价格"""
         if symbol in self.trades_cache and self.trades_cache[symbol]:
-            return self.trades_cache[symbol][-1]['price']
+            price = self.trades_cache[symbol][-1]['price']
+            logger.info(f"Retrieved latest price for {symbol}: {price}")
+            return price
+        logger.warning(f"No price data available for {symbol}")
         return None
     
     def get_market_depth(self, symbol: str, depth: int = 10) -> Dict:
@@ -468,12 +477,47 @@ class MarketDataService:
         volume = sum(trade['amount'] for trade in trades)
         return volume_price / volume if volume > 0 else None
         
-    async def fetch_perpetual_data(self, symbol: str) -> Dict:
+    def get_volatility(self, symbol: str, window: int = 20) -> Optional[float]:
+        """计算价格波动率"""
+        if symbol not in self.trades_cache:
+            logger.warning(f"No trade data available for {symbol}")
+            return None
+            
+        prices = [trade['price'] for trade in list(self.trades_cache[symbol])[-window:]]
+        if not prices:
+            return None
+            
+        returns = pd.Series(prices).pct_change().dropna()
+        return float(returns.std() * (252 ** 0.5))  # Annualized volatility
+        
+    def get_atr(self, symbol: str, timeframe: str = '1h', period: int = 14) -> Optional[float]:
+        """计算平均真实范围"""
+        try:
+            df = self.get_ohlcv(symbol, timeframe)
+            if df.empty:
+                logger.warning(f"No OHLCV data available for {symbol}")
+                return None
+                
+            df['high_low'] = df['high'] - df['low']
+            df['high_close'] = abs(df['high'] - df['close'].shift())
+            df['low_close'] = abs(df['low'] - df['close'].shift())
+            df['tr'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
+            atr = df['tr'].rolling(period).mean().iloc[-1]
+            logger.info(f"Calculated ATR for {symbol}: {atr}")
+            return float(atr)
+        except Exception as e:
+            logger.error(f"Error calculating ATR for {symbol}: {str(e)}")
+            return None
+        
+    async def fetch_perpetual_data(self, symbol: str) -> Optional[Dict[str, Any]]:
         """获取永续合约数据"""
+        logger.info(f"Fetching perpetual data for {symbol}")
         if not self.config.perpetual_enabled or not self.config.perpetual_symbols:
+            logger.warning("Perpetual trading not enabled or no symbols configured")
             return None
             
         if symbol not in self.config.perpetual_symbols:
+            logger.warning(f"Symbol {symbol} not in perpetual symbols list")
             return None
             
         try:
@@ -546,4 +590,4 @@ class MarketDataService:
         """获取标记价格"""
         if symbol in self.perpetual_cache:
             return self.perpetual_cache[symbol]['mark_price']
-        return None   
+        return None           
