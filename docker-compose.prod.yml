@@ -1,5 +1,9 @@
 version: '3.8'
 
+volumes:
+  postgres_data:
+  redis_data:
+
 services:
   postgres:
     extends:
