@@ -1,5 +1,4 @@
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import asyncio
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional
@@ -14,21 +13,16 @@ class DeepSeekAgent(BaseAgent):
     
     def __init__(self, config: AgentConfig):
         super().__init__(config)
-        self.model_name = "deepseek-ai/deepseek-coder-1.5b-base"
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        from deepseek_client import DeepseekClient
+        from ollama_client import OllamaClient
         
-        # 加载模型和分词器
+        # Initialize clients
         try:
-            logger.info(f"Loading DeepSeek model on {self.device}...")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-                device_map="auto"
-            )
-            logger.info("Model loaded successfully")
+            self.deepseek_client = DeepseekClient()
+            self.ollama_client = OllamaClient()
+            logger.info("AI clients initialized successfully")
         except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
+            logger.error(f"Error initializing AI clients: {str(e)}")
             raise
     
     def _prepare_market_data(self, data: pd.DataFrame) -> str:
@@ -129,9 +123,16 @@ TAKE_PROFIT: [建议止盈价格]
             return result
         except Exception as e:
             logger.error(f"Error parsing model output: {str(e)}")
-            return None
+            return {
+                'decision': None,
+                'confidence': 0.0,
+                'reason': f'Error parsing output: {str(e)}',
+                'risk_level': 'HIGH',
+                'stop_loss': None,
+                'take_profit': None
+            }
     
-    def analyze(self, data: pd.DataFrame) -> Optional[TradeSignal]:
+    async def analyze(self, data: pd.DataFrame) -> Optional[TradeSignal]:
         """分析市场数据并生成交易信号"""
         if len(data) < 50:
             return None
@@ -140,22 +141,29 @@ TAKE_PROFIT: [建议止盈价格]
             # 准备输入数据
             prompt = self._prepare_market_data(data)
             
-            # 生成模型输入
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+            # Prepare market data for analysis
+            market_data = {
+                'prompt': prompt,
+                'current_price': data['close'].iloc[-1],
+                'price_change_24h': data['close'].pct_change(24).iloc[-1] * 100,
+                'price_change_7d': data['close'].pct_change(7).iloc[-1] * 100,
+                'volume_24h': data['volume'].iloc[-1],
+                'volume_change': (data['volume'].iloc[-1] / data['volume_sma'].iloc[-1] - 1) * 100,
+                'market_cap': data['close'].iloc[-1] * data['volume'].iloc[-1],
+                'holders': 5000
+            }
             
-            # 生成预测
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_length=512,
-                    num_return_sequences=1,
-                    temperature=0.7,
-                    do_sample=True
-                )
-            
-            # 解码输出
-            prediction_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            prediction = self._parse_model_output(prediction_text)
+            # Try Ollama first, then fallback to DeepSeek
+            try:
+                if await self.ollama_client.is_available():
+                    logger.info("Using local Ollama model for analysis...")
+                    prediction = await self.ollama_client.analyze_market_sentiment(market_data)
+                else:
+                    logger.warning("Ollama not available, falling back to DeepSeek API...")
+                    prediction = await self.deepseek_client.analyze_market_sentiment(market_data)
+            except Exception as e:
+                logger.error(f"Model analysis failed: {str(e)}")
+                return None
             
             if not prediction:
                 return None
@@ -166,10 +174,10 @@ TAKE_PROFIT: [建议止盈价格]
             atr = data['atr'].iloc[-1]
             
             # 根据预测生成信号
-            if prediction['decision'] in ['BUY', 'SELL'] and \
-               prediction['confidence'] >= self.config.confidence_threshold:
+            if prediction and prediction.get('sentiment') in ['bullish', 'bearish'] and \
+               prediction.get('confidence', 0) >= self.config.confidence_threshold:
                 
-                direction = prediction['decision'].lower()
+                direction = 'buy' if prediction['sentiment'] == 'bullish' else 'sell'
                 
                 # 计算止损止盈
                 if direction == 'buy':
@@ -223,8 +231,8 @@ TAKE_PROFIT: [建议止盈价格]
     
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         """计算RSI指标"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        return 100 - (100 / (1 + rs)) 
+        delta = prices.astype(float).diff()
+        gain = (delta.where(delta > 0, 0.0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0.0)).rolling(window=period).mean()
+        rs = gain / loss.replace(0, float('inf'))  # Avoid division by zero
+        return 100 - (100 / (1 + rs))          

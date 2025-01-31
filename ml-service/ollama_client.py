@@ -86,11 +86,15 @@ class OllamaClient:
                         # Extract JSON from markdown response
                         json_start = full_response.find('```json\n')
                         if json_start == -1:
-                            raise ValueError("No JSON found in response")
-                        json_start += 8  # Length of '```json\n'
-                        json_end = full_response.find('\n```', json_start)
-                        if json_end == -1:
-                            raise ValueError("Malformed JSON response")
+                            json_start = full_response.find('{')
+                            if json_start == -1:
+                                raise ValueError("No JSON found in response")
+                            json_end = full_response.rfind('}') + 1
+                        else:
+                            json_start += 8  # Length of '```json\n'
+                            json_end = full_response.find('\n```', json_start)
+                            if json_end == -1:
+                                raise ValueError("Malformed JSON response")
                         json_str = full_response[json_start:json_end].strip()
                         return self._parse_analysis_response({"response": json_str})
             except Exception as e:

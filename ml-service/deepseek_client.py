@@ -1,18 +1,26 @@
 import os
 import aiohttp
 import asyncio
+import logging
 from typing import Dict, List, Any, Optional
 import json
 from ollama_client import OllamaClient
+
+logger = logging.getLogger(__name__)
 
 class DeepseekClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv('DEEPSEEK_API_KEY')
         self.base_url = "https://api.deepseek.com/v1/chat"
         self.ollama_client = OllamaClient()
+        self.timeout = aiohttp.ClientTimeout(total=120)  # 2 minute timeout
         
     async def analyze_market_sentiment(self, token_data: Dict) -> Dict[str, Any]:
         """Analyze market sentiment using Deepseek's API"""
+        if not self.api_key:
+            logger.warning("No DeepSeek API key found")
+            raise ValueError("DeepSeek API key not configured")
+            
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -22,7 +30,7 @@ class DeepseekClient:
         prompt = self._create_analysis_prompt(token_data)
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
                 async with session.post(
                     f"{self.base_url}/completions",
                     headers=headers,
