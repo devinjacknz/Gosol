@@ -16,15 +16,28 @@ import {
 } from '@mui/material';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { formatPrice, formatAmount, validateOrder } from '@/utils/trading';
+import { useTradingStore } from '@/store';
+import type { MarketData } from '@/types/trading';
 
 interface TradingViewProps {
   symbol: string;
   onPlaceOrder?: (order: {
     symbol: string;
     side: 'buy' | 'sell';
+    type: 'limit';
     price: number;
     amount: number;
   }) => void;
+}
+
+type OrderBookEntry = [number, number];
+
+interface MarketTrade {
+  id: string;
+  price: number;
+  amount: number;
+  side: 'buy' | 'sell';
+  timestamp: string;
 }
 
 export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) {
@@ -32,16 +45,19 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
   const [amount, setAmount] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
 
-  const { data: marketData, isConnected, error: wsError } = useWebSocket(
-    `wss://api.exchange.com/ws/market/${symbol}`
-  );
+  useWebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws');
+  const { marketData, systemStatus } = useTradingStore();
+  const currentMarket = marketData[symbol];
+  const isConnected = systemStatus?.isConnected || false;
 
   const handleSubmit = (side: 'buy' | 'sell') => {
+    if (!currentMarket) return;
+
     const order = {
       symbol,
       side,
       type: 'limit' as const,
-      price: parseFloat(price),
+      price: parseFloat(price || currentMarket.price.toString()),
       amount: parseFloat(amount),
     };
 
@@ -61,8 +77,8 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
     return <Alert severity="error">Connection lost</Alert>;
   }
 
-  if (wsError) {
-    return <Alert severity="error">{wsError.message}</Alert>;
+  if (!currentMarket) {
+    return <Alert severity="warning">Loading market data...</Alert>;
   }
 
   return (
@@ -72,14 +88,14 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
           <Typography variant="h6" gutterBottom>
             {symbol} Market
           </Typography>
-          {marketData && (
+          {currentMarket && (
             <Box>
-              <Typography variant="h4">{formatPrice(marketData.price)}</Typography>
+              <Typography variant="h4">{formatPrice(currentMarket.price)}</Typography>
               <Typography
-                color={marketData.change >= 0 ? 'success.main' : 'error.main'}
+                color={currentMarket.change24h >= 0 ? 'success.main' : 'error.main'}
               >
-                {marketData.change >= 0 ? '+' : ''}
-                {marketData.change}%
+                {currentMarket.change24h >= 0 ? '+' : ''}
+                {currentMarket.change24h}%
               </Typography>
             </Box>
           )}
@@ -149,7 +165,7 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
                 </TableRow>
               </TableHead>
               <TableBody>
-                {marketData?.orderBook?.asks.map(([price, amount]) => (
+                {currentMarket?.orderBook?.asks?.map(([price, amount]) => (
                   <TableRow key={price}>
                     <TableCell sx={{ color: 'error.main' }}>
                       {formatPrice(price)}
@@ -157,7 +173,7 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
                     <TableCell align="right">{formatAmount(amount)}</TableCell>
                   </TableRow>
                 ))}
-                {marketData?.orderBook?.bids.map(([price, amount]) => (
+                {currentMarket?.orderBook?.bids?.map(([price, amount]) => (
                   <TableRow key={price}>
                     <TableCell sx={{ color: 'success.main' }}>
                       {formatPrice(price)}
@@ -186,7 +202,7 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
                 </TableRow>
               </TableHead>
               <TableBody>
-                {marketData?.trades?.map((trade) => (
+                {currentMarket?.trades?.map((trade) => (
                   <TableRow key={trade.id}>
                     <TableCell
                       sx={{
@@ -210,4 +226,4 @@ export default function TradingView({ symbol, onPlaceOrder }: TradingViewProps) 
       </Grid>
     </Grid>
   );
-} 
+}          
