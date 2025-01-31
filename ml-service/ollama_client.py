@@ -11,7 +11,12 @@ class OllamaClient:
         self.retry_delay = 1
 
     async def analyze_market_sentiment(self, token_data: Dict) -> Dict[str, Any]:
+        print("Creating analysis prompt...")
         prompt = self._create_analysis_prompt(token_data)
+        print("Prompt created successfully")
+        
+        timeout = aiohttp.ClientTimeout(total=30)
+        print(f"Sending request to Ollama at {self.base_url}/api/chat...")
         
         default_response = {
             'sentiment': 'neutral',
@@ -34,7 +39,8 @@ class OllamaClient:
         
         for attempt in range(self.max_retries):
             try:
-                async with aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    print("Making POST request to Ollama...")
                     async with session.post(
                         f"{self.base_url}/api/chat",
                         json={
@@ -46,8 +52,12 @@ class OllamaClient:
                             "stream": False
                         }
                     ) as response:
+                        print(f"Received response with status: {response.status}")
                         if response.status != 200:
-                            raise Exception(f"Ollama API error: {await response.text()}")
+                            error_text = await response.text()
+                            print(f"Error response from Ollama: {error_text}")
+                            raise Exception(f"Ollama API error: {error_text}")
+                        print("Parsing response...")
                         result = await response.json()
                         return self._parse_analysis_response(result)
             except Exception as e:
@@ -74,30 +84,30 @@ class OllamaClient:
         - Holders: {token_data.get('holders')}
         
         Please analyze this data and provide a response in the following JSON format:
-        {
+        {{
             "market_sentiment": "bullish/bearish/neutral",
-            "risk_level": <number between 1-10>,
-            "short_term_prediction": {
-                "target_price": <predicted price>,
-                "timeframe": "<timeframe in hours/days>",
-                "key_levels": {
-                    "support": <support price level>,
-                    "resistance": <resistance price level>
-                }
-            },
+            "risk_level": "number between 1-10",
+            "short_term_prediction": {{
+                "target_price": "predicted price",
+                "timeframe": "timeframe in hours/days",
+                "key_levels": {{
+                    "support": "support price level",
+                    "resistance": "resistance price level"
+                }}
+            }},
             "key_factors": [
-                "<factor 1>",
-                "<factor 2>",
+                "factor 1",
+                "factor 2",
                 "..."
             ],
             "trading_recommendation": "BUY/SELL/HOLD",
-            "confidence": <number between 0-1>,
-            "risk_analysis": {
+            "confidence": "number between 0-1",
+            "risk_analysis": {{
                 "market_manipulation_risk": "low/medium/high",
                 "liquidity_risk": "low/medium/high",
                 "volatility_risk": "low/medium/high"
-            }
-        }
+            }}
+        }}
 
         Ensure your response is a valid JSON object with all fields properly formatted.
         """
