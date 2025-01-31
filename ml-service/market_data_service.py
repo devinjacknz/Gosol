@@ -270,7 +270,9 @@ class MarketDataService:
         """更新市场数据"""
         while self.is_running:
             try:
+                logger.debug("[MarketDataService] Starting market data update cycle")
                 for symbol in self.config.symbols:
+                    logger.debug(f"[MarketDataService] Updating data for {symbol}")
                     # 更新K线数据
                     for timeframe in self.config.timeframes:
                         ohlcv = await self.exchange.fetch_ohlcv(
@@ -453,9 +455,9 @@ class MarketDataService:
         """获取最新价格"""
         if symbol in self.trades_cache and self.trades_cache[symbol]:
             price = self.trades_cache[symbol][-1]['price']
-            logger.info(f"Retrieved latest price for {symbol}: {price}")
+            logger.debug(f"[MarketDataService] Latest price for {symbol}: {price}")
             return price
-        logger.warning(f"No price data available for {symbol}")
+        logger.debug(f"[MarketDataService] No price data available for {symbol}")
         return None
     
     def get_market_depth(self, symbol: str, depth: int = 10) -> Dict:
@@ -590,4 +592,4 @@ class MarketDataService:
         """获取标记价格"""
         if symbol in self.perpetual_cache:
             return self.perpetual_cache[symbol]['mark_price']
-        return None           
+        return None               

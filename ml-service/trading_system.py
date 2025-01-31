@@ -6,12 +6,13 @@ from agent_system import AgentSystem, AgentConfig
 from trade_executor import TradeExecutor
 from market_data_service import MarketDataService, MarketConfig
 from risk_management import RiskManager, RiskConfig, Position
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Union
 from datetime import datetime
 from .config import Config
 import pandas as pd
 from ml_agent import DeepSeekAgent
 from agent_system import TradeSignal
+from risk_management import Position, ContractPosition
 
 # 配置日志
 logging.basicConfig(**Config.get_log_config())
@@ -155,14 +156,15 @@ class TradingSystem:
     
     async def _analysis_loop(self) -> None:
         """市场分析循环"""
-        logger.info("Starting market analysis loop")
+        logger.debug("[TradingSystem] Starting market analysis loop")
         while self.is_running:
             try:
                 for symbol in self.market_data_service.config.symbols:
-                    logger.info(f"Starting analysis cycle for {symbol}")
+                    logger.debug(f"[TradingSystem] Starting analysis cycle for {symbol}")
                     
                     # 获取每个Agent需要的时间周期数据
                     for agent in self.agent_system.agents.values():
+                        logger.debug(f"[TradingSystem] Running agent {agent.config.name} for {symbol}")
                         timeframe = agent.config.timeframe
                         try:
                             data = self.market_data_service.get_ohlcv(symbol, timeframe)
@@ -254,11 +256,11 @@ class TradingSystem:
         
         return current_price
     
-    async def process_signal(self, signal: Dict):
+    async def process_signal(self, signal: TradeSignal):
         """处理交易信号"""
-        symbol = signal['symbol']
-        direction = signal['direction']
-        confidence = signal.get('confidence', 0.5)
+        symbol = signal.symbol
+        direction = signal.direction
+        confidence = signal.confidence
         
         # 获取市场数据
         current_price = self.market_data_service.get_latest_price(symbol)
@@ -382,8 +384,9 @@ class TradingSystem:
             for symbol, position in list(self.risk_manager.positions.items()):
                 try:
                     current_price = self.market_data_service.get_latest_price(symbol)
-                    if current_price and isinstance(position, Position):
-                        await self.trade_executor._close_position(position, current_price, "RISK_EVENT")
+                    if current_price:
+                        if isinstance(position, (Position, ContractPosition)):
+                            await self.trade_executor._close_position(position, current_price, "RISK_EVENT")
                 except Exception as e:
                     logger.error(f"Failed to close position {symbol}: {e}")
             
@@ -444,4 +447,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行主程序
-    asyncio.run(main())                          
+    asyncio.run(main())                              
