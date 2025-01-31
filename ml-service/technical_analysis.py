@@ -283,8 +283,9 @@ class TechnicalAnalysis:
         
         # Chaikin Volatility
         high_low = data.high - data.low
-        chaikin_vol = talib.EMA(high_low, timeperiod=10) / \
-                     talib.EMA(high_low, timeperiod=10).shift(10)
+        alpha = 2.0 / (10 + 1)
+        ema_hl = high_low.ewm(alpha=alpha, adjust=False).mean()
+        chaikin_vol = ema_hl / ema_hl.shift(10)
         
         return {
             'std': std.iloc[-1],
@@ -297,13 +298,23 @@ class TechnicalAnalysis:
                                   volume: pd.Series) -> Dict[str, float]:
         """Calculate volume-based indicators"""
         # Chaikin A/D Line
-        ad = talib.AD(close.high, close.low, close.close, volume)
+        clv = ((close - close.low) - (close.high - close)) / (close.high - close.low)
+        ad = (clv * volume).cumsum()
         
         # Money Flow Index
-        mfi = talib.MFI(close.high, close.low, close.close, volume, timeperiod=14)
+        tp = (close.high + close.low + close) / 3
+        rmf = tp * volume
+        
+        positive_flow = (tp > tp.shift(1)).astype(float) * rmf
+        negative_flow = (tp < tp.shift(1)).astype(float) * rmf
+        
+        positive_mf = positive_flow.rolling(window=14).sum()
+        negative_mf = negative_flow.rolling(window=14).sum()
+        
+        mfi = 100 - (100 / (1 + positive_mf / negative_mf))
         
         # Volume Rate of Change
-        vroc = talib.ROC(volume, timeperiod=14)
+        vroc = ((volume - volume.shift(14)) / volume.shift(14)) * 100
         
         return {
             'ad': ad.iloc[-1],
@@ -323,4 +334,4 @@ class TechnicalAnalysis:
             'evening_star': talib.CDLEVENINGSTAR(data.open, data.high, data.low, data.close)
         }
         
-        return {name: bool(pattern.iloc[-1]) for name, pattern in patterns.items()} 
+        return {name: bool(pattern.iloc[-1]) for name, pattern in patterns.items()}  

@@ -8,8 +8,35 @@ import json
 import sqlite3
 from pathlib import Path
 from abc import ABC, abstractmethod
-import talib
 from collections import deque
+
+def calculate_sma(data: pd.Series, period: int) -> pd.Series:
+    """Calculate Simple Moving Average"""
+    return data.rolling(window=period).mean()
+
+def calculate_rsi(data: pd.Series, period: int = 14) -> pd.Series:
+    """Calculate Relative Strength Index"""
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss.replace(0, float('inf'))
+    return 100 - (100 / (1 + rs))
+
+def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Calculate Average True Range"""
+    tr1 = high - low
+    tr2 = abs(high - close.shift())
+    tr3 = abs(low - close.shift())
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(window=period).mean()
+
+def calculate_bbands(data: pd.Series, period: int = 20, num_std: float = 2) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Calculate Bollinger Bands"""
+    middle = calculate_sma(data, period)
+    std = data.rolling(window=period).std()
+    upper = middle + (std * num_std)
+    lower = middle - (std * num_std)
+    return upper, middle, lower
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -107,10 +134,10 @@ class TrendFollowingAgent(BaseAgent):
             return None
         
         # 计算技术指标
-        data['sma20'] = talib.SMA(data['close'], timeperiod=20)
-        data['sma50'] = talib.SMA(data['close'], timeperiod=50)
-        data['rsi'] = talib.RSI(data['close'], timeperiod=14)
-        data['atr'] = talib.ATR(data['high'], data['low'], data['close'], timeperiod=14)
+        data['sma20'] = calculate_sma(data['close'], 20)
+        data['sma50'] = calculate_sma(data['close'], 50)
+        data['rsi'] = calculate_rsi(data['close'], 14)
+        data['atr'] = calculate_atr(data['high'], data['low'], data['close'], 14)
         
         current_price = data['close'].iloc[-1]
         sma20 = data['sma20'].iloc[-1]
@@ -183,11 +210,11 @@ class MeanReversionAgent(BaseAgent):
             return None
         
         # 计算技术指标
-        data['sma20'] = talib.SMA(data['close'], timeperiod=20)
-        data['boll_upper'], data['boll_middle'], data['boll_lower'] = talib.BBANDS(
-            data['close'], timeperiod=20, nbdevup=2, nbdevdn=2
+        data['sma20'] = calculate_sma(data['close'], 20)
+        data['boll_upper'], data['boll_middle'], data['boll_lower'] = calculate_bbands(
+            data['close'], period=20, num_std=2
         )
-        data['rsi'] = talib.RSI(data['close'], timeperiod=14)
+        data['rsi'] = calculate_rsi(data['close'], 14)
         
         current_price = data['close'].iloc[-1]
         sma20 = data['sma20'].iloc[-1]
@@ -260,10 +287,10 @@ class BreakoutAgent(BaseAgent):
             return None
         
         # 计算技术指标
-        data['atr'] = talib.ATR(data['high'], data['low'], data['close'], timeperiod=14)
+        data['atr'] = calculate_atr(data['high'], data['low'], data['close'], 14)
         data['highest'] = data['high'].rolling(20).max()
         data['lowest'] = data['low'].rolling(20).min()
-        data['volume_sma'] = data['volume'].rolling(20).mean()
+        data['volume_sma'] = calculate_sma(data['volume'], 20)
         
         current_price = data['close'].iloc[-1]
         current_volume = data['volume'].iloc[-1]
@@ -551,4 +578,4 @@ class AgentSystem:
                 for agent in self.agents.values()
             ) / total_signals
         
-        return metrics 
+        return metrics  
