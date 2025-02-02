@@ -1,103 +1,124 @@
-import { io, Socket } from 'socket.io-client'
 import { store } from '@/store'
 import { updateMarketData } from '@/store/trading/tradingSlice'
 import { addAlert } from '@/store/monitoring/monitoringSlice'
 
 class WebSocketService {
-  private socket: Socket | null = null
+  private socket: WebSocket | null = null
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  private symbol: string | null = null
 
   constructor() {
     this.initialize()
   }
 
   public initialize() {
-    this.socket = io(process.env.VITE_WS_URL || 'ws://localhost:8080/ws', {
-      reconnection: true,
-      reconnectionDelay: this.reconnectDelay,
-      reconnectionAttempts: this.maxReconnectAttempts,
-    })
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      return
+    }
 
+    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8080'}/ws/${this.symbol || 'BTC-USDT'}`
+    this.socket = new WebSocket(wsUrl)
     this.setupEventListeners()
   }
 
   private setupEventListeners() {
     if (!this.socket) return
 
-    // 连接事件
-    this.socket.on('connect', () => {
+    this.socket.onopen = () => {
       console.log('WebSocket connected')
       this.reconnectAttempts = 0
-    })
+      
+      // Subscribe to market data
+      if (this.symbol) {
+        this.socket?.send(JSON.stringify({
+          type: 'subscribe',
+          symbol: this.symbol
+        }))
+      }
+    }
 
-    // 断开连接事件
-    this.socket.on('disconnect', (reason) => {
-      console.log('WebSocket disconnected:', reason)
+    this.socket.onclose = (event) => {
+      console.log('WebSocket disconnected:', event.reason)
       store.dispatch(addAlert({
         level: 'warning',
-        message: `WebSocket disconnected: ${reason}`,
+        message: `WebSocket disconnected: ${event.reason}`,
         source: 'websocket',
       }))
-    })
 
-    // 重连事件
-    this.socket.on('reconnect_attempt', (attempt) => {
-      this.reconnectAttempts = attempt
-      console.log(`WebSocket reconnection attempt ${attempt}`)
-    })
+      // Attempt to reconnect
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++
+        console.log(`WebSocket reconnection attempt ${this.reconnectAttempts}`)
+        setTimeout(() => this.initialize(), this.reconnectDelay)
+      }
+    }
 
-    // 错误事件
-    this.socket.on('error', (error) => {
+    this.socket.onerror = (error) => {
       console.error('WebSocket error:', error)
       store.dispatch(addAlert({
         level: 'error',
-        message: `WebSocket error: ${error.message}`,
+        message: 'WebSocket connection error',
         source: 'websocket',
       }))
-    })
+    }
 
-    // 市场数据更新
-    this.socket.on('marketData', (data) => {
-      store.dispatch(updateMarketData(data))
-    })
-
-    // 订单更新
-    this.socket.on('orderUpdate', (data) => {
-      // 处理订单更新
-    })
-
-    // 持仓更新
-    this.socket.on('positionUpdate', (data) => {
-      // 处理持仓更新
-    })
+    this.socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === 'market_data') {
+          store.dispatch(updateMarketData(data.data))
+        }
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error)
+      }
+    }
   }
 
-  // 订阅市场数据
   public subscribeMarketData(symbol: string) {
-    this.socket?.emit('subscribe', { channel: 'marketData', symbol })
+    this.symbol = symbol
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({
+        type: 'subscribe',
+        symbol
+      }))
+    } else {
+      this.initialize()
+    }
   }
 
-  // 取消订阅市场数据
   public unsubscribeMarketData(symbol: string) {
-    this.socket?.emit('unsubscribe', { channel: 'marketData', symbol })
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({
+        type: 'unsubscribe',
+        symbol
+      }))
+    }
   }
 
-  // 发送订单
   public sendOrder(order: any) {
-    this.socket?.emit('placeOrder', order)
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({
+        type: 'placeOrder',
+        data: order
+      }))
+    }
   }
 
-  // 取消订单
   public cancelOrder(orderId: string) {
-    this.socket?.emit('cancelOrder', { orderId })
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({
+        type: 'cancelOrder',
+        data: { orderId }
+      }))
+    }
   }
 
-  // 关闭连接
   public disconnect() {
-    this.socket?.disconnect()
+    this.socket?.close()
+    this.socket = null
   }
 }
 
-export const wsService = new WebSocketService()  
+export const wsService = new WebSocketService()    
