@@ -11,8 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
-	"github.com/leonzhao/gosol/backend/logger"
-	"github.com/leonzhao/gosol/backend/middleware"
+	"github.com/devinjacknz/godydxhyber/backend/logger"
+	"github.com/devinjacknz/godydxhyber/backend/middleware"
 )
 
 var log = logger.NewLogger()
