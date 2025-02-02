@@ -4,6 +4,8 @@ import { debugService } from '@/services/debug'
 import { Card, Table, Typography, Row, Col, Statistic, Space, Tag, Button, Select } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined, SyncOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
+import type { WebSocketStatus, AlertConfig } from '@/types/status'
+import type { RootState } from '@/store'
 
 const { Title } = Typography
 
@@ -128,10 +130,10 @@ const Monitoring = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status) => {
-        const config = {
-          online: { color: '#52c41a', icon: <CheckCircleOutlined /> },
-          offline: { color: '#f5222d', icon: <CloseCircleOutlined /> },
-          error: { color: '#faad14', icon: <SyncOutlined spin /> },
+        const config: Record<string, WebSocketStatus> = {
+          online: { color: '#52c41a', icon: <CheckCircleOutlined />, status: 'online' },
+          offline: { color: '#f5222d', icon: <CloseCircleOutlined />, status: 'offline' },
+          error: { color: '#faad14', icon: <SyncOutlined spin />, status: 'error' },
         }
         return (
           <Tag color={config[status].color}>
@@ -185,10 +187,10 @@ const Monitoring = () => {
       dataIndex: 'type',
       key: 'type',
       render: (type) => {
-        const config = {
-          info: { color: '#1890ff', text: '信息' },
-          warning: { color: '#faad14', text: '警告' },
-          error: { color: '#f5222d', text: '错误' },
+        const config: Record<string, AlertConfig> = {
+          info: { color: '#1890ff', text: '信息', type: 'info' },
+          warning: { color: '#faad14', text: '警告', type: 'warning' },
+          error: { color: '#f5222d', text: '错误', type: 'error' },
         }
         return <Tag color={config[type].color}>{config[type].text}</Tag>
       },

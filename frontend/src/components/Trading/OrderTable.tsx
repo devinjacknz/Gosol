@@ -1,8 +1,10 @@
+import React from 'react';
 import { Table } from 'antd';
 import { useAppSelector } from '@/hooks/store';
+import type { RootState } from '@/store';
 
 export const OrderTable: React.FC = () => {
-  const { orders, loading } = useAppSelector(state => state.trading);
+  const { orders, loading } = useAppSelector((state: RootState) => state.trading);
 
   const columns = [
     { title: 'Symbol', dataIndex: 'symbol', key: 'symbol' },

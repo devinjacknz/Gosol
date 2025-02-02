@@ -9,8 +9,18 @@ vi.mock('socket.io-client')
 vi.mock('@/store')
 
 describe('WebSocket Service', () => {
-  let mockSocket: any
-  let mockStore: any
+  interface MockSocket {
+    on: jest.Mock;
+    emit: jest.Mock;
+    disconnect: jest.Mock;
+  }
+
+  interface MockStore {
+    dispatch: jest.Mock;
+  }
+
+  let mockSocket: MockSocket
+  let mockStore: MockStore
 
   beforeEach(() => {
     mockSocket = {
@@ -45,7 +55,7 @@ describe('WebSocket Service', () => {
       wsService.initialize()
 
       const connectHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'connect'
+        (call: [string, ...any[]]) => call[0] === 'connect'
       )[1]
       connectHandler()
 
@@ -56,7 +66,7 @@ describe('WebSocket Service', () => {
       wsService.initialize()
 
       const disconnectHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'disconnect'
+        (call: [string, ...any[]]) => call[0] === 'disconnect'
       )[1]
       disconnectHandler('transport close')
 
@@ -73,7 +83,7 @@ describe('WebSocket Service', () => {
       wsService.initialize()
 
       const reconnectHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'reconnect_attempt'
+        (call: [string, ...any[]]) => call[0] === 'reconnect_attempt'
       )[1]
       reconnectHandler(1)
 
@@ -106,7 +116,7 @@ describe('WebSocket Service', () => {
       wsService.initialize()
 
       const marketDataHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'marketData'
+        (call: [string, ...any[]]) => call[0] === 'marketData'
       )[1]
 
       const mockData = {
@@ -151,7 +161,7 @@ describe('WebSocket Service', () => {
       wsService.initialize()
 
       const errorHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'error'
+        (call: [string, ...any[]]) => call[0] === 'error'
       )[1]
 
       const error = new Error('Connection failed')
@@ -172,7 +182,7 @@ describe('WebSocket Service', () => {
       // Simulate max reconnection attempts
       for (let i = 0; i <= wsService['maxReconnectAttempts']; i++) {
         const reconnectHandler = mockSocket.on.mock.calls.find(
-          call => call[0] === 'reconnect_attempt'
+          (call: [string, ...any[]]) => call[0] === 'reconnect_attempt'
         )[1]
         reconnectHandler(i)
       }
@@ -189,4 +199,4 @@ describe('WebSocket Service', () => {
       expect(mockSocket.disconnect).toHaveBeenCalled()
     })
   })
-}) 
+})    

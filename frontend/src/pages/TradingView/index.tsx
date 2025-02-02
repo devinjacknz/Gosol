@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Layout, Card, Select } from 'antd'
 import { useAppDispatch, useAppSelector } from '@/hooks/store'
+import type { RootState } from '@/store'
 import { setSelectedSymbol, fetchOrders, fetchPositions } from '@/store/trading/tradingSlice'
 import { TradingChart } from '@/components/Chart/TradingChart'
 import { OrderForm } from '@/components/Trading/OrderForm'
@@ -23,7 +24,7 @@ const TradingView = () => {
     positions,
     selectedSymbol,
     loading,
-  } = useAppSelector((state) => state.trading)
+  } = useAppSelector((state: RootState) => state.trading)
 
   // 初始化 WebSocket 连接
   useWebSocket(selectedSymbol)
@@ -60,24 +61,20 @@ const TradingView = () => {
           height={600}
         />
 
-        <OrderForm
-          symbol={selectedSymbol}
-          lastPrice={lastPrice}
-          loading={loading}
-        />
+        <OrderForm />
       </Layout>
 
       <Sider width={400} className="bg-white dark:bg-gray-800 p-4">
         <Card title="当前订单" className="mb-4">
-          <OrderTable data={orders} loading={loading} />
+          <OrderTable />
         </Card>
 
         <Card title="当前持仓">
-          <PositionTable data={positions} loading={loading} />
+          <PositionTable />
         </Card>
       </Sider>
     </Layout>
   )
 }
 
-export default TradingView 
+export default TradingView    

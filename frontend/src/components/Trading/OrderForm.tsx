@@ -1,10 +1,12 @@
+import React from 'react';
 import { Form, Input, Button, Select } from 'antd';
 import { useAppDispatch, useAppSelector } from '@/hooks/store';
 import { placeOrder } from '@/store/trading/tradingSlice';
+import type { RootState } from '@/store';
 
 export const OrderForm: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { selectedSymbol } = useAppSelector(state => state.trading);
+  const { selectedSymbol } = useAppSelector((state: RootState) => state.trading);
 
   const onFinish = (values: any) => {
     dispatch(placeOrder({ ...values, symbol: selectedSymbol }));

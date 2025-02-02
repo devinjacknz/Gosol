@@ -2,28 +2,64 @@ import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 import { TextEncoder, TextDecoder } from 'util'
 
-// Mock WebSocket
-class MockWebSocket {
-  onopen: (() => void) | null = null
-  onclose: (() => void) | null = null
-  onmessage: ((data: any) => void) | null = null
-  onerror: ((error: any) => void) | null = null
-  readyState = WebSocket.CONNECTING
+interface WebSocketEventMap {
+  open: Event;
+  close: CloseEvent;
+  message: MessageEvent;
+  error: Event;
+}
 
-  constructor() {
+class MockWebSocket implements WebSocket {
+  onopen: ((event: Event) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  readyState: number = WebSocket.CONNECTING;
+  url: string = '';
+  protocol: string = '';
+  extensions: string = '';
+  bufferedAmount: number = 0;
+  binaryType: BinaryType = 'blob';
+  static readonly CONNECTING: number = 0;
+  static readonly OPEN: number = 1;
+  static readonly CLOSING: number = 2;
+  static readonly CLOSED: number = 3;
+
+  constructor(url: string, protocols?: string | string[]) {
+    this.url = url;
     setTimeout(() => {
-      this.readyState = WebSocket.OPEN
-      this.onopen?.()
-    }, 100)
+      this.readyState = WebSocket.OPEN;
+      this.onopen?.(new Event('open'));
+    }, 100);
   }
 
-  send(data: string) {
-    console.log('WebSocket send:', data)
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+    console.log('WebSocket send:', data);
   }
 
-  close() {
-    this.readyState = WebSocket.CLOSED
-    this.onclose?.()
+  close(code?: number, reason?: string): void {
+    this.readyState = WebSocket.CLOSED;
+    this.onclose?.(new CloseEvent('close', { code, reason }));
+  }
+
+  addEventListener<K extends keyof WebSocketEventMap>(
+    type: K,
+    listener: (event: WebSocketEventMap[K]) => void,
+    options?: boolean | AddEventListenerOptions
+  ): void {
+    // Implementation not needed for tests
+  }
+
+  removeEventListener<K extends keyof WebSocketEventMap>(
+    type: K,
+    listener: (event: WebSocketEventMap[K]) => void,
+    options?: boolean | EventListenerOptions
+  ): void {
+    // Implementation not needed for tests
+  }
+
+  dispatchEvent(event: Event): boolean {
+    return true;
   }
 }
 
@@ -50,7 +86,14 @@ class IntersectionObserver {
 }
 
 // Mock Canvas
-HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+HTMLCanvasElement.prototype.getContext = vi.fn((contextId: string) => {
+  if (contextId === '2d') {
+    return mockCanvasContext() as unknown as CanvasRenderingContext2D;
+  }
+  return null;
+}) as any;
+
+const mockCanvasContext = vi.fn(() => ({
   fillRect: vi.fn(),
   clearRect: vi.fn(),
   getImageData: vi.fn(() => ({
@@ -80,7 +123,7 @@ global.localStorage = localStorageMock as any
 global.ResizeObserver = ResizeObserver
 global.IntersectionObserver = IntersectionObserver as any
 global.TextEncoder = TextEncoder
-global.TextDecoder = TextDecoder
+global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder
 
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -104,4 +147,4 @@ global.cancelAnimationFrame = vi.fn(id => clearTimeout(id))
 // Mock console methods
 console.error = vi.fn()
 console.warn = vi.fn()
-console.log = vi.fn() 
+console.log = vi.fn()       
