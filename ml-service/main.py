@@ -293,22 +293,12 @@ async def health_check() -> JSONResponse:
             },
             headers={"Cache-Control": "no-cache"}
         )
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "timestamp": datetime.utcnow().isoformat(),
-                "error": str(e),
-                "components": {k: "unhealthy" for k in ["database", "market_data", "ollama", "deepseek"]}
-            }
-        )
+
 
 # Initialize services
-market_data = None
-deepseek = None
-ollama_client = None
+market_data = MarketData()
+deepseek = DeepseekClient()
+ollama_client = OllamaClient()
 
 @app.on_event("startup")
 async def startup_event():
@@ -344,38 +334,7 @@ async def startup_event():
     print("\nRegistered routes:")
     for route in app.routes:
         print(f"{route.path} [{','.join(route.methods)}]")
-async def startup_event():
-    """Initialize services on application startup"""
-    global market_data, deepseek, ollama_client
-    
-    # Initialize market data service
-    if market_data is None:
-        market_data = MarketData()
-        await market_data.initialize()
-        logger.info("Initialized MarketData service during startup")
-    
-    # Initialize Deepseek client
-    if deepseek is None:
-        deepseek = DeepseekClient()
-        logger.info("Initialized Deepseek client during startup")
-    
-    # Initialize Ollama client
-    if ollama_client is None:
-        ollama_client = OllamaClient()
-        logger.info("Initialized Ollama client during startup")
-        
-        # Pull model if not already available
-        try:
-            model_info = await ollama_client.get_model_info()
-            if model_info.get("status") != "loaded":
-                logger.info("Model not found, attempting to pull...")
-        except Exception as e:
-            logger.error(f"Error checking model status: {e}")
-    
-    # Debug route registration
-    logger.info("\nRegistered routes:")
-    for route in app.routes:
-        logger.info(f"{route.path} [{','.join(route.methods)}]")
+
 
 class PredictionRequest(BaseModel):
     token_address: str
@@ -524,7 +483,7 @@ class TradingAnalyzer:
         df['volatility'] = df['price'].rolling(window=10).std()
         
         # Fill NaN values
-        df = df.fillna(method='bfill')
+        df = df.fillna(method='bfill', inplace=False)
         
         return df.values
 
@@ -784,4 +743,4 @@ app.include_router(router)
 
 if __name__ == "__main__":
     port = int(os.getenv("ML_SERVICE_PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
