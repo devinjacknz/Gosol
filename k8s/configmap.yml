@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gosol-config
+data:
+  config.yaml: |
+    server:
+      port: 2112
+      metrics_path: /metrics
+      health_path: /health
+
+    monitoring:
+      prometheus:
+        enabled: true
+        retention_days: 15
+      grafana:
+        enabled: true
+        dashboards_path: /etc/gosol/dashboards
+
+    exchanges:
+      hyperliquid:
+        api_url: "https://api.hyperliquid.xyz"
+        ws_url: "wss://api.hyperliquid.xyz/ws"
+        rate_limit:
+          requests_per_second: 10
+          burst_size: 20
+      dydx:
+        api_url: "https://api.dydx.exchange"
+        ws_url: "wss://api.dydx.exchange/v3/ws"
+        rate_limit:
+          requests_per_second: 5
+          burst_size: 10
+
+    risk:
+      position_limits:
+        BTC-USD:
+          hyperliquid: 1000000.0
+          dydx: 500000.0
+        ETH-USD:
+          hyperliquid: 500000.0
+          dydx: 250000.0
+      max_leverage:
+        hyperliquid: 20
+        dydx: 10
+      margin_requirements:
+        initial: 0.05
+        maintenance: 0.0375
+      liquidation_threshold: 0.075
+
+    trading:
+      markets:
+        - symbol: BTC-USD
+          exchange: hyperliquid
+          min_size: 0.001
+          price_precision: 1
+          size_precision: 3
+          funding_interval: 3600
+        - symbol: ETH-USD
+          exchange: hyperliquid
+          min_size: 0.01
+          price_precision: 2
+          size_precision: 3
+          funding_interval: 3600
+        - symbol: BTC-USD
+          exchange: dydx
+          min_size: 0.001
+          price_precision: 1
+          size_precision: 3
+          funding_interval: 28800
+        - symbol: ETH-USD
+          exchange: dydx
+          min_size: 0.01
+          price_precision: 2
+          size_precision: 3
+          funding_interval: 28800
+
+    logging:
+      level: info
+      format: json
+      output: stdout 

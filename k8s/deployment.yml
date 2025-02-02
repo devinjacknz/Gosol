@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gosol
+  labels:
+    app: gosol
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: gosol
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: gosol
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2112"
+    spec:
+      containers:
+      - name: gosol
+        image: leonzhao/gosol:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 2112
+          name: metrics
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 2112
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        env:
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ENVIRONMENT
+          value: "production"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/gosol
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: gosol-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gosol
+  labels:
+    app: gosol
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 3000
+    name: http
+  - port: 2112
+    targetPort: 2112
+    name: metrics
+  selector:
+    app: gosol
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gosol
+  labels:
+    app: gosol
+spec:
+  selector:
+    matchLabels:
+      app: gosol
+  endpoints:
+  - port: metrics
+    interval: 15s

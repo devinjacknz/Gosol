@@ -5,21 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
+	"github.com/leonzhao/gosol/backend/logger"
+	"github.com/leonzhao/gosol/backend/middleware"
 )
 
-var log = logrus.New()
-
-func init() {
-	log.SetFormatter(&logrus.JSONFormatter{})
-	log.SetOutput(os.Stdout)
-	log.SetLevel(logrus.InfoLevel)
-}
+var log = logger.NewLogger()
 
 func main() {
 	log.Info("Starting backend service...")
@@ -59,8 +55,36 @@ func main() {
 		defer rdb.Close()
 	}
 
-	// Initialize Gin router
-	r := gin.Default()
+	// Initialize Gin router with custom middleware
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	
+	// Use custom middleware
+	r.Use(middleware.RecoverMiddleware())
+	r.Use(middleware.DebugMiddleware())
+	r.Use(gin.Logger())
+
+	// Debug endpoints
+	debug := r.Group("/debug")
+	{
+		debug.GET("/stats", middleware.RequestStatsEndpoint)
+		debug.GET("/memory", middleware.MemoryStatsEndpoint)
+		debug.GET("/stack", middleware.StackTraceEndpoint)
+		debug.GET("/pprof/*any", middleware.PprofEndpoint)
+		debug.GET("/goroutines", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{
+				"count": runtime.NumGoroutine(),
+			})
+		})
+		debug.GET("/env", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{
+				"env":     os.Environ(),
+				"version": runtime.Version(),
+				"arch":    runtime.GOARCH,
+				"os":      runtime.GOOS,
+			})
+		})
+	}
 
 	// Health check endpoint that handles both GET and HEAD
 	r.Any("/health", func(c *gin.Context) {

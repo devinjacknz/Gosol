@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-color: #1677ff;
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --error-color: #ff4d4f;
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+}
+
+html,
+body {
+  @apply m-0 p-0;
+  font-family: var(--font-family);
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  @apply w-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 dark:bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-600 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-500;
+}
+
+/* 交易页面样式 */
+.trading-layout {
+  @apply flex h-screen;
+}
+
+.trading-content {
+  @apply flex-1 flex flex-col overflow-hidden;
+}
+
+.chart-container {
+  @apply h-[600px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg;
+}
+
+.order-form {
+  @apply mt-4 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg;
+}
+
+.order-table {
+  @apply mt-4;
+}
+
+/* 分析页面样式 */
+.analysis-layout {
+  @apply grid grid-cols-12 gap-4 p-4;
+}
+
+.analysis-main {
+  @apply col-span-9;
+}
+
+.analysis-sidebar {
+  @apply col-span-3;
+}
+
+.indicator-card {
+  @apply mb-4;
+}
+
+.llm-analysis {
+  @apply mt-4 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg;
+}
+
+/* 监控页面样式 */
+.monitoring-grid {
+  @apply grid grid-cols-4 gap-4 p-4;
+}
+
+.metric-card {
+  @apply bg-white dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700;
+}
+
+.metric-title {
+  @apply text-sm text-gray-500 dark:text-gray-400;
+}
+
+.metric-value {
+  @apply text-2xl font-bold mt-2;
+}
+
+.metric-trend {
+  @apply text-sm mt-2;
+}
+
+.trend-up {
+  @apply text-green-500;
+}
+
+.trend-down {
+  @apply text-red-500;
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+  .monitoring-grid {
+    @apply grid-cols-2;
+  }
+  
+  .analysis-layout {
+    @apply grid-cols-1;
+  }
+  
+  .analysis-main,
+  .analysis-sidebar {
+    @apply col-span-1;
+  }
+}
+
+@media (max-width: 640px) {
+  .monitoring-grid {
+    @apply grid-cols-1;
+  }
+  
+  .chart-container {
+    @apply h-[400px];
+  }
+} 

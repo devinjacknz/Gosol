@@ -1,152 +1,104 @@
-import { useEffect, useCallback, useRef } from 'react';
-import { useTradingStore } from '@/store';
+import { useEffect, useRef, useCallback } from 'react'
+import { useDispatch } from 'react-redux'
+import { io, Socket } from 'socket.io-client'
+import { updateMarketData } from '@/store/trading/tradingSlice'
+import { addAlert } from '@/store/monitoring/monitoringSlice'
 
-import type { MarketDataEntry, SystemStatus } from '@/types/trading';
+export const useWebSocket = (symbol: string) => {
+  const dispatch = useDispatch()
+  const socketRef = useRef<Socket>()
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>()
+  const reconnectAttemptsRef = useRef(0)
+  const maxReconnectAttempts = 5
+  const reconnectDelay = 1000
 
-interface WebSocketMessage {
-  type: string;
-  data: MarketDataEntry | string;
-}
+  const handleConnectionError = useCallback(() => {
+    dispatch(addAlert({
+      level: 'error',
+      message: '网络连接已断开',
+      source: 'websocket',
+    }))
 
-export function useWebSocket(symbol: string): void {
-  const { setMarketData, setAccountInfo, setSystemStatus } = useTradingStore();
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
-  const maxReconnectDelay = 5000;
-  const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080'}/ws/${symbol}`;
+    if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectAttemptsRef.current++
+        socketRef.current?.disconnect()
+        initializeSocket()
+      }, reconnectDelay * Math.pow(2, reconnectAttemptsRef.current))
+    }
+  }, [dispatch])
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
+  const handleConnectionSuccess = useCallback(() => {
+    reconnectAttemptsRef.current = 0
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
     }
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    
-    const handleSubscribe = () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ 
-          type: 'subscribe', 
-          symbol,
-          timestamp: new Date().toISOString()
-        }));
-      }
-    };
+    dispatch(addAlert({
+      level: 'success',
+      message: '网络已重新连接',
+      source: 'websocket',
+    }))
+  }, [dispatch])
 
-    const handleMessage = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data) as WebSocketMessage;
-        const currentTime = Date.now();
-        const timestamp = new Date().toISOString();
+  const initializeSocket = useCallback(() => {
+    if (socketRef.current?.connected) return
 
-        switch (message.type) {
-          case 'market_data':
-            if (typeof message.data !== 'string') {
-              const marketData = message.data;
-              setMarketData(symbol, marketData);
-              setSystemStatus({
-                isConnected: true,
-                lastUpdate: timestamp,
-                status: 'online',
-                dataDelay: marketData.trades?.[0]?.timestamp 
-                  ? currentTime - new Date(marketData.trades[0].timestamp).getTime()
-                  : 0,
-              });
-            } else {
-              setSystemStatus({
-                isConnected: true,
-                lastUpdate: timestamp,
-                status: 'online',
-                dataDelay: 0,
-              });
-            }
-            break;
-          case 'subscribed':
-            console.log(`Subscribed to ${symbol}`);
-            break;
-          case 'error':
-            console.error(`WebSocket error: ${message.data}`);
-            setSystemStatus({
-              isConnected: false,
-              lastUpdate: new Date().toISOString(),
-              status: 'offline',
-              message: `WebSocket error: ${message.data}`,
-              dataDelay: 0,
-            });
-            break;
-        }
-      } catch (error) {
-        console.error('WebSocket message parsing error:', error);
-      }
-    };
+    socketRef.current = io(process.env.VITE_WS_URL || 'ws://localhost:8080/ws', {
+      reconnection: true,
+      reconnectionDelay: reconnectDelay,
+      reconnectionAttempts: maxReconnectAttempts,
+    })
 
-    ws.onopen = () => {
-      setSystemStatus({
-        isConnected: true,
-        lastUpdate: new Date().toISOString(),
-        status: 'online',
-        dataDelay: 0,
-      });
-      handleSubscribe();
-    };
+    socketRef.current.on('connect', () => {
+      console.log('WebSocket connected')
+      handleConnectionSuccess()
+      socketRef.current?.emit('subscribe', { channel: 'marketData', symbol })
+    })
 
-    ws.onmessage = handleMessage;
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('WebSocket disconnected:', reason)
+      handleConnectionError()
+    })
 
-    ws.onclose = (event) => {
-      if (event.wasClean) {
-        console.log(`WebSocket closed cleanly, code=${event.code}`);
-      } else {
-        console.warn('WebSocket connection died');
-      }
+    socketRef.current.on('error', (error) => {
+      console.error('WebSocket error:', error)
+      dispatch(addAlert({
+        level: 'error',
+        message: `WebSocket error: ${error.message}`,
+        source: 'websocket',
+      }))
+    })
 
-      setSystemStatus({
-        isConnected: false,
-        lastUpdate: new Date().toISOString(),
-        status: 'offline',
-        message: 'WebSocket connection closed',
-        dataDelay: 0,
-      });
-
-      // Implement reconnection with exponential backoff
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, Math.min(1000 + Math.random() * 4000, maxReconnectDelay));
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setSystemStatus({
-        isConnected: false,
-        lastUpdate: new Date().toISOString(),
-        status: 'offline',
-        message: 'WebSocket connection error',
-        dataDelay: 0,
-      });
-      
-      // Attempt to reconnect after error
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, Math.min(1000 + Math.random() * 4000, maxReconnectDelay));
-    };
-  }, [symbol, setMarketData, setAccountInfo, setSystemStatus]);
+    socketRef.current.on('marketData', (data) => {
+      dispatch(updateMarketData({ symbol, data }))
+    })
+  }, [dispatch, handleConnectionError, handleConnectionSuccess, symbol])
 
   useEffect(() => {
-    connect();
-    
+    initializeSocket()
+
+    // 添加网络状态监听
+    window.addEventListener('online', handleConnectionSuccess)
+    window.addEventListener('offline', handleConnectionError)
+
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      // 取消订阅
+      socketRef.current?.emit('unsubscribe', { channel: 'marketData', symbol })
+
+      // 移除监听器
+      window.removeEventListener('online', handleConnectionSuccess)
+      window.removeEventListener('offline', handleConnectionError)
+
+      // 清理重连定时器
       if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+        clearTimeout(reconnectTimeoutRef.current)
       }
-    };
-  }, [connect]);
-}
+
+      // 关闭连接
+      socketRef.current?.disconnect()
+    }
+  }, [symbol, handleConnectionSuccess, handleConnectionError, initializeSocket])
+
+  return socketRef.current
+} 
