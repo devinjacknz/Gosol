@@ -1,85 +1,16 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: postgres:14-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: solmeme_trader
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    environment:
-      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/solmeme_trader?sslmode=disable
-      - REDIS_URL=redis://redis:6379/0
-      - ML_SERVICE_URL=http://ml-service:8000
-      - GIN_MODE=debug
-      - ENABLE_METRICS=true
-      - METRICS_PORT=2112
-      - METRICS_PATH=/metrics
-      - ENABLE_RATE_LIMIT=true
-      - MAX_REQUEST_SIZE_MB=10
     ports:
       - "8080:8080"
+      - "8081:8081"
       - "2112:2112"
+    environment:
+      - GIN_MODE=release
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ml-service:
-        condition: service_started
-
-  ml-service:
-    build:
-      context: ./ml-service
-      dockerfile: Dockerfile
-    environment:
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEFAULT_MODEL=deepseek-r1:1.5b
-      - FALLBACK_MODEL=deepseek-r1:1.5b
-      - CONTEXT_SIZE=4096
-      - MAX_CONCURRENT_REQUESTS=5
-      - REQUESTS_PER_SECOND=10
-      - HTTP_TIMEOUT_SECONDS=30
-      - ENABLE_METRICS=true
-      - METRICS_PORT=2112
-      - METRICS_PATH=/metrics
-    ports:
-      - "8000:8000"
-      - "2113:2112"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -88,65 +19,33 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_BACKEND_URL=${BACKEND_URL:-http://backend:8080}
-    environment:
-      - VITE_BACKEND_URL=${BACKEND_URL:-http://backend:8080}
     ports:
       - "80:80"
+    environment:
+      - VITE_BACKEND_URL=http://backend:8080
+      - VITE_WS_URL=ws://backend:8081
+      - VITE_METRICS_URL=http://backend:2112
+    depends_on:
+      - backend
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
-    depends_on:
-      backend:
-        condition: service_healthy
 
-  app:
-    build: .
+  ollama:
+    build:
+      context: .
+      dockerfile: ollama.Dockerfile
     ports:
-      - "2114:2112"
-    environment:
-      - ENABLE_METRICS=true
-      - METRICS_PORT=2112
-      - METRICS_PATH=/metrics
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2112/metrics"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-    depends_on:
-      - prometheus
-      - grafana
-
-  prometheus:
-    image: prom/prometheus:v2.45.0
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-
-  grafana:
-    image: grafana/grafana:10.1.0
-    depends_on:
-      - prometheus
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana-storage:/var/lib/grafana
-      - ./grafana-dashboards:/etc/grafana/dashboards
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
 
 volumes:
-  postgres_data:
-  redis_data:
-  grafana-storage:
+  ollama_data:

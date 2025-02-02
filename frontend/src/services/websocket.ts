@@ -1,128 +1,137 @@
-import { store } from '@/store'
-import { updateMarketData } from '@/store/trading/tradingSlice'
-import { addAlert } from '@/store/monitoring/monitoringSlice'
+interface WebSocketMessage {
+  type: string;
+  channel?: string;
+  data?: any;
+}
 
-class WebSocketService {
-  private socket: WebSocket | null = null
-  private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
-  private reconnectDelay = 1000
-  private symbol: string | null = null
+export class WebSocketService {
+  private ws: WebSocket | null = null;
+  private eventHandlers: { [key: string]: ((data: any) => void)[] } = {};
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000;
+  private heartbeatInterval: number | null = null;
+  private pingTimeout: number | null = null;
+  private baseUrl: string;
 
   constructor() {
-    this.initialize()
+    this.baseUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8081';
   }
 
-  public initialize() {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      return
+  connect(): void {
+    if (this.ws) {
+      this.ws.close();
     }
 
-    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8080'}/ws/${this.formatSymbol(this.symbol)}`
-    this.socket = new WebSocket(wsUrl)
-    this.setupEventListeners()
-  }
+    this.ws = new WebSocket(`${this.baseUrl}/ws`, ["13"]);
 
-  private formatSymbol(symbol: string): string {
-    return symbol?.replace('/', '-') || 'BTC-USDT'
-  }
+    this.ws.onopen = () => {
+      this.reconnectAttempts = 0;
+      this.startHeartbeat();
+      this.trigger('connected');
+    };
 
-  private setupEventListeners() {
-    if (!this.socket) return
-
-    this.socket.onopen = () => {
-      console.log('WebSocket connected')
-      this.reconnectAttempts = 0
-      
-      // Subscribe to market data
-      if (this.symbol) {
-        this.socket?.send(JSON.stringify({
-          type: 'subscribe',
-          symbol: this.symbol
-        }))
-      }
-    }
-
-    this.socket.onclose = (event) => {
-      console.log('WebSocket disconnected:', event.reason)
-      store.dispatch(addAlert({
-        level: 'warning',
-        message: `WebSocket disconnected: ${event.reason}`,
-        source: 'websocket',
-      }))
-
-      // Attempt to reconnect
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.reconnectAttempts++
-        console.log(`WebSocket reconnection attempt ${this.reconnectAttempts}`)
-        setTimeout(() => this.initialize(), this.reconnectDelay)
-      }
-    }
-
-    this.socket.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      store.dispatch(addAlert({
-        level: 'error',
-        message: 'WebSocket connection error',
-        source: 'websocket',
-      }))
-    }
-
-    this.socket.onmessage = (event) => {
+    this.ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data)
-        if (data.type === 'market_data') {
-          store.dispatch(updateMarketData(data.data))
+        const message: WebSocketMessage = JSON.parse(event.data);
+        if (message.type === 'pong') {
+          if (this.pingTimeout) {
+            clearTimeout(this.pingTimeout);
+            this.pingTimeout = null;
+          }
+          return;
         }
+        this.trigger(message.type, message.data);
       } catch (error) {
-        console.error('Failed to parse WebSocket message:', error)
+        console.error('Failed to parse WebSocket message:', error);
       }
+    };
+
+    this.ws.onclose = () => {
+      this.stopHeartbeat();
+      this.trigger('disconnected');
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        setTimeout(() => {
+          this.reconnectAttempts++;
+          this.connect();
+        }, this.reconnectDelay * this.reconnectAttempts);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      this.trigger('error', error);
+    };
+  }
+
+  private startHeartbeat(): void {
+    this.heartbeatInterval = window.setInterval(() => {
+      if (this.isConnected()) {
+        this.send({ type: 'ping' });
+        this.pingTimeout = window.setTimeout(() => {
+          if (this.ws) {
+            this.ws.close();
+          }
+        }, 5000);
+      }
+    }, 30000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      window.clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    if (this.pingTimeout) {
+      window.clearTimeout(this.pingTimeout);
+      this.pingTimeout = null;
     }
   }
 
-  public subscribeMarketData(symbol: string) {
-    this.symbol = symbol
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({
-        type: 'subscribe',
-        symbol: this.formatSymbol(symbol)
-      }))
-    } else {
-      this.initialize()
+  disconnect(): void {
+    this.stopHeartbeat();
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
     }
   }
 
-  public unsubscribeMarketData(symbol: string) {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({
-        type: 'unsubscribe',
-        symbol: this.formatSymbol(symbol)
-      }))
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  send(message: WebSocketMessage): void {
+    if (this.isConnected()) {
+      this.ws?.send(JSON.stringify(message));
     }
   }
 
-  public sendOrder(order: any) {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({
-        type: 'placeOrder',
-        data: order
-      }))
-    }
+  subscribe(channel: string): void {
+    this.send({ type: 'subscribe', channel });
   }
 
-  public cancelOrder(orderId: string) {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({
-        type: 'cancelOrder',
-        data: { orderId }
-      }))
-    }
+  unsubscribe(channel: string): void {
+    this.send({ type: 'unsubscribe', channel });
   }
 
-  public disconnect() {
-    this.socket?.close()
-    this.socket = null
+  on(event: string, callback: (data: any) => void): void {
+    if (!this.eventHandlers[event]) {
+      this.eventHandlers[event] = [];
+    }
+    this.eventHandlers[event].push(callback);
+  }
+
+  off(event: string, callback: (data: any) => void): void {
+    if (!this.eventHandlers[event]) return;
+    this.eventHandlers[event] = this.eventHandlers[event].filter(
+      (cb) => cb !== callback
+    );
+  }
+
+  private trigger(event: string, data?: any): void {
+    if (!this.eventHandlers[event]) return;
+    this.eventHandlers[event].forEach((callback) => callback(data));
   }
 }
 
-export const wsService = new WebSocketService()        
+export const wsService = new WebSocketService();
