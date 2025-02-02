@@ -4,9 +4,9 @@ import { useAppDispatch, useAppSelector } from '@/hooks/store'
 import type { RootState } from '@/store'
 import { setSelectedSymbol, fetchOrders, fetchPositions } from '@/store/trading/tradingSlice'
 import { TradingChart } from '@/components/Chart/TradingChart'
-import { OrderForm } from '@/components/Trading/OrderForm'
-import { OrderTable } from '@/components/Trading/OrderTable'
-import { PositionTable } from '@/components/Trading/PositionTable'
+import { OrderForm } from '@/components/trading/OrderForm'
+import { OrderTable } from '@/components/trading/OrderTable'
+import { PositionTable } from '@/components/trading/PositionTable'
 import { useWebSocket } from '@/hooks/useWebSocket'
 
 const { Sider } = Layout
@@ -77,4 +77,4 @@ const TradingView = () => {
   )
 }
 
-export default TradingView    
+export default TradingView      
