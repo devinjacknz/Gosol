@@ -13,7 +13,7 @@ class WebSocketService {
     this.initialize()
   }
 
-  private initialize() {
+  public initialize() {
     this.socket = io(process.env.VITE_WS_URL || 'ws://localhost:8080/ws', {
       reconnection: true,
       reconnectionDelay: this.reconnectDelay,
@@ -100,4 +100,4 @@ class WebSocketService {
   }
 }
 
-export const wsService = new WebSocketService() 
+export const wsService = new WebSocketService()  

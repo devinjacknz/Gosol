@@ -10,20 +10,26 @@ interface WebSocketEventMap {
 }
 
 class MockWebSocket implements WebSocket {
-  onopen: ((event: Event) => void) | null = null;
-  onclose: ((event: CloseEvent) => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  readyState: number = WebSocket.CONNECTING;
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
+  readonly CONNECTING = MockWebSocket.CONNECTING;
+  readonly OPEN = MockWebSocket.OPEN;
+  readonly CLOSING = MockWebSocket.CLOSING;
+  readonly CLOSED = MockWebSocket.CLOSED;
+
+  onopen: ((this: WebSocket, ev: Event) => any) | null = null;
+  onclose: ((this: WebSocket, ev: CloseEvent) => any) | null = null;
+  onmessage: ((this: WebSocket, ev: MessageEvent) => any) | null = null;
+  onerror: ((this: WebSocket, ev: Event) => any) | null = null;
+  readyState: number = this.CONNECTING;
   url: string = '';
   protocol: string = '';
   extensions: string = '';
   bufferedAmount: number = 0;
   binaryType: BinaryType = 'blob';
-  static readonly CONNECTING: number = 0;
-  static readonly OPEN: number = 1;
-  static readonly CLOSING: number = 2;
-  static readonly CLOSED: number = 3;
 
   constructor(url: string, protocols?: string | string[]) {
     this.url = url;
@@ -147,4 +153,4 @@ global.cancelAnimationFrame = vi.fn(id => clearTimeout(id))
 // Mock console methods
 console.error = vi.fn()
 console.warn = vi.fn()
-console.log = vi.fn()       
+console.log = vi.fn()                 
