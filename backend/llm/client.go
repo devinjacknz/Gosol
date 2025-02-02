@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"gosol/backend/monitoring"
+	"github.com/devinjacknz/godydxhyber/backend/trading/analysis/monitoring"
 
 	"golang.org/x/time/rate"
 )
