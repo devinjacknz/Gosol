@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
@@ -63,6 +64,14 @@ func main() {
 	r.Use(middleware.RecoverMiddleware())
 	r.Use(middleware.DebugMiddleware())
 	r.Use(gin.Logger())
+	
+	// Configure CORS
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"http://localhost:3000"}
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
+	config.AllowCredentials = true
+	r.Use(cors.New(config))
 
 	// Debug endpoints
 	debug := r.Group("/debug")
