@@ -4,23 +4,24 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and Poetry
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install poetry
 
-# Copy requirements file
-COPY requirements.txt .
+# Configure Poetry
+RUN poetry config virtualenvs.in-project true
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy Poetry files
+COPY pyproject.toml poetry.lock ./
 
-# Copy source code
+# Install dependencies
+RUN poetry install --no-root --no-dev
+
+# Copy source code and environment variables
 COPY . .
-
-# Copy environment variables
-COPY .env .env
 
 # Expose port
 EXPOSE 8000
@@ -29,4 +30,4 @@ EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
 
 # Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["poetry", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
