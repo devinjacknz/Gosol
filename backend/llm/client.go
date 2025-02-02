@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"gosol/backend/monitoring"
+	"github.com/leonzhao/gosol/backend/monitoring"
 
 	"golang.org/x/time/rate"
 )
@@ -159,7 +159,27 @@ func (c *DefaultClient) Stream(ctx context.Context, prompt string) (<-chan *Resp
 	return responseChan, nil
 }
 
+func (c *DefaultClient) validateModel(model *Model) error {
+	if model.Name == "" {
+		return fmt.Errorf("model name cannot be empty")
+	}
+	if model.BaseURL == "" {
+		return fmt.Errorf("model base URL cannot be empty")
+	}
+	if model.Type == DeepSeekAPI && model.APIKey == "" {
+		return fmt.Errorf("API key is required for DeepSeek models")
+	}
+	if model.Type != LocalOllama && model.Type != DeepSeekAPI {
+		return fmt.Errorf("unsupported model type: %v", model.Type)
+	}
+	return nil
+}
+
 func (c *DefaultClient) generateWithModel(ctx context.Context, model *Model, prompt string) (*Response, error) {
+	if err := c.validateModel(model); err != nil {
+		return nil, err
+	}
+
 	switch model.Type {
 	case LocalOllama:
 		return c.generateOllama(ctx, model, prompt)
@@ -171,6 +191,10 @@ func (c *DefaultClient) generateWithModel(ctx context.Context, model *Model, pro
 }
 
 func (c *DefaultClient) streamWithModel(ctx context.Context, model *Model, prompt string, responseChan chan<- *Response) error {
+	if err := c.validateModel(model); err != nil {
+		return err
+	}
+
 	switch model.Type {
 	case LocalOllama:
 		return c.streamOllama(ctx, model, prompt, responseChan)
@@ -479,6 +503,10 @@ func (c *DefaultClient) GetModel() *Model {
 func (c *DefaultClient) SetModel(model *Model) error {
 	if model == nil {
 		return fmt.Errorf("model cannot be nil")
+	}
+
+	if err := c.validateModel(model); err != nil {
+		return err
 	}
 
 	c.mu.Lock()

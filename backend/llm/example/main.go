@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"gosol/backend/llm"
+	"github.com/leonzhao/gosol/backend/llm"
 )
 
 func main() {
