@@ -69,8 +69,9 @@ func main() {
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{"http://localhost:3000"}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
+	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Sec-WebSocket-Protocol", "Sec-WebSocket-Version", "Sec-WebSocket-Key"}
 	config.AllowCredentials = true
+	config.ExposeHeaders = []string{"Content-Length", "Content-Type", "Sec-WebSocket-Accept"}
 	r.Use(cors.New(config))
 
 	// Debug endpoints

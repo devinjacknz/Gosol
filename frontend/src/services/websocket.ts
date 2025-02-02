@@ -18,9 +18,13 @@ class WebSocketService {
       return
     }
 
-    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8080'}/ws/${this.symbol || 'BTC-USDT'}`
+    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8080'}/ws/${this.formatSymbol(this.symbol)}`
     this.socket = new WebSocket(wsUrl)
     this.setupEventListeners()
+  }
+
+  private formatSymbol(symbol: string): string {
+    return symbol?.replace('/', '-') || 'BTC-USDT'
   }
 
   private setupEventListeners() {
@@ -81,7 +85,7 @@ class WebSocketService {
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({
         type: 'subscribe',
-        symbol
+        symbol: this.formatSymbol(symbol)
       }))
     } else {
       this.initialize()
@@ -92,7 +96,7 @@ class WebSocketService {
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({
         type: 'unsubscribe',
-        symbol
+        symbol: this.formatSymbol(symbol)
       }))
     }
   }
@@ -121,4 +125,4 @@ class WebSocketService {
   }
 }
 
-export const wsService = new WebSocketService()    
+export const wsService = new WebSocketService()        
