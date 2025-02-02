@@ -1,4 +1,4 @@
-module github.com/leonzhao/gosol/backend
+module github.com/devinjacknz/godydxhyber/backend
 
 go 1.21
 
