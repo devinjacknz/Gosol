@@ -2,8 +2,22 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import axios from 'axios'
 import { marketApi, tradingApi, analysisApi, monitoringApi } from './api'
 
-vi.mock('axios')
-const mockedAxios = axios as jest.Mocked<typeof axios>
+vi.mock('axios', () => ({
+  default: {
+    create: vi.fn(() => ({
+      interceptors: {
+        request: { use: vi.fn() },
+        response: { use: vi.fn() }
+      },
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn()
+    }))
+  }
+}))
+
+const mockedAxios = axios.create() as jest.Mocked<typeof axios>
 
 describe('API Services', () => {
   beforeEach(() => {
@@ -196,4 +210,4 @@ describe('API Services', () => {
       )
     })
   })
-}) 
+})  

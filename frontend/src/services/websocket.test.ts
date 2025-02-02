@@ -5,11 +5,15 @@ import { updateMarketData } from '@/store/trading/tradingSlice'
 import { addAlert } from '@/store/monitoring/monitoringSlice'
 
 const mockDispatch = vi.fn();
+const mockStore = {
+  dispatch: mockDispatch,
+  getState: vi.fn(),
+  subscribe: vi.fn(),
+  replaceReducer: vi.fn(),
+};
 
 vi.mock('@/store', () => ({
-  store: {
-    dispatch: mockDispatch,
-  },
+  store: mockStore,
 }));
 
 describe('WebSocket Service', () => {
@@ -187,4 +191,4 @@ describe('WebSocket Service', () => {
       expect(mockWebSocket.close).toHaveBeenCalled()
     })
   })
-})                        
+})                          
