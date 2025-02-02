@@ -183,9 +183,3 @@ const (
 	MarginTypeIsolated = "ISOLATED"
 	MarginTypeCross    = "CROSS"
 )
-
-// Position side types
-const (
-	PositionSideLong  = "LONG"
-	PositionSideShort = "SHORT"
-)
