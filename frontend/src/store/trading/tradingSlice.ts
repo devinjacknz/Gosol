@@ -86,13 +86,13 @@ const tradingSlice = createSlice({
         )
       })
       .addCase(fetchOrders.fulfilled, (state, action) => {
-        state.orders = action.payload
+        state.orders = action.payload.data
       })
       .addCase(fetchPositions.fulfilled, (state, action) => {
-        state.positions = action.payload
+        state.positions = action.payload.data
       })
   },
 })
 
 export const { updateMarketData, setSelectedSymbol } = tradingSlice.actions
-export default tradingSlice.reducer 
+export default tradingSlice.reducer  
