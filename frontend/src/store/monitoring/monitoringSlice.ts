@@ -42,7 +42,7 @@ export const fetchMetrics = createAsyncThunk(
   'monitoring/fetchMetrics',
   async () => {
     const response = await monitoringApi.getMetrics()
-    return response
+    return response.data
   }
 )
 
@@ -50,7 +50,7 @@ export const fetchAlerts = createAsyncThunk(
   'monitoring/fetchAlerts',
   async () => {
     const response = await monitoringApi.getAlerts()
-    return response
+    return response.data
   }
 )
 
@@ -93,4 +93,4 @@ const monitoringSlice = createSlice({
 })
 
 export const { addAlert, clearAlerts } = monitoringSlice.actions
-export default monitoringSlice.reducer 
+export default monitoringSlice.reducer  
