@@ -1,96 +1,83 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
-import { monitoringApi } from '@/services/api'
+import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-export interface Alert {
-  level: 'info' | 'warning' | 'error'
-  message: string
-  source: string
-  timestamp?: string
+interface Alert {
+  level: 'info' | 'warning' | 'error';
+  message: string;
+  source: string;
+  timestamp?: number;
 }
 
-export interface SystemMetrics {
-  cpuUsage: number
-  memoryUsage: number
-  diskUsage: number
-  llmRequestCount: number
-  avgResponseTime: number
-  errorRate: number
-  tokenUsage: number
-  llmGenerationTime: number
-  tokenGenerationRate: number
-  apiSuccessRate: number
-  apiLatency: number
-  systemAvailability: number
-  errorCount: number
+interface Metrics {
+  systemStatus: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  wsConnections: number;
+  activeOrders: number;
 }
 
-export interface MonitoringState {
-  metrics: SystemMetrics | null
-  alerts: Alert[]
-  loading: boolean
-  error: string | null
+interface MonitoringState {
+  alerts: Alert[];
+  metrics: Metrics;
+  loading: boolean;
+  error: string | null;
 }
 
 const initialState: MonitoringState = {
-  metrics: null,
   alerts: [],
+  metrics: {
+    systemStatus: 'healthy',
+    cpuUsage: 0,
+    memoryUsage: 0,
+    wsConnections: 0,
+    activeOrders: 0,
+  },
   loading: false,
-  error: null,
-}
-
-export const fetchMetrics = createAsyncThunk(
-  'monitoring/fetchMetrics',
-  async () => {
-    const response = await monitoringApi.getMetrics()
-    return response.data
-  }
-)
-
-export const fetchAlerts = createAsyncThunk(
-  'monitoring/fetchAlerts',
-  async () => {
-    const response = await monitoringApi.getAlerts()
-    return response.data
-  }
-)
+  error: null
+};
 
 const monitoringSlice = createSlice({
   name: 'monitoring',
   initialState,
   reducers: {
-    addAlert: (state, action) => {
+    addAlert: (state, action: PayloadAction<Alert>) => {
       state.alerts.unshift({
         ...action.payload,
-        timestamp: new Date().toISOString(),
-      })
-      // 保持最近100条告警
-      if (state.alerts.length > 100) {
-        state.alerts.pop()
-      }
+        timestamp: Date.now(),
+      });
     },
-    clearAlerts: (state) => {
-      state.alerts = []
+    updateMetrics: (state, action: PayloadAction<Partial<Metrics>>) => {
+      state.metrics = { ...state.metrics, ...action.payload };
+    },
+    setLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
+    setError: (state, action: PayloadAction<string | null>) => {
+      state.error = action.payload;
     },
   },
-  extraReducers: (builder) => {
-    builder
-      .addCase(fetchMetrics.pending, (state) => {
-        state.loading = true
-        state.error = null
-      })
-      .addCase(fetchMetrics.fulfilled, (state, action) => {
-        state.loading = false
-        state.metrics = action.payload
-      })
-      .addCase(fetchMetrics.rejected, (state, action) => {
-        state.loading = false
-        state.error = action.error.message || 'Failed to fetch metrics'
-      })
-      .addCase(fetchAlerts.fulfilled, (state, action) => {
-        state.alerts = action.payload
-      })
-  },
-})
+});
 
-export const { addAlert, clearAlerts } = monitoringSlice.actions
-export default monitoringSlice.reducer  
+const monitoringSlice = createSlice({
+  name: 'monitoring',
+  initialState,
+  reducers: {
+    addAlert: (state, action: PayloadAction<Alert>) => {
+      state.alerts.unshift({
+        ...action.payload,
+        timestamp: Date.now(),
+      });
+    },
+    updateMetrics: (state, action: PayloadAction<Metrics>) => {
+      state.metrics = action.payload;
+    },
+    setLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
+    setError: (state, action: PayloadAction<string | null>) => {
+      state.error = action.payload;
+    },
+  },
+});
+
+export const { addAlert, updateMetrics } = monitoringSlice.actions;
+export default monitoringSlice.reducer;

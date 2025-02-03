@@ -16,7 +16,12 @@ describe('WebSocketService', () => {
       onerror: null,
     };
 
-    global.WebSocket = vi.fn().mockImplementation(() => mockWebSocket);
+    const MockWebSocket = vi.fn(() => mockWebSocket) as any;
+    MockWebSocket.CONNECTING = 0;
+    MockWebSocket.OPEN = 1;
+    MockWebSocket.CLOSING = 2;
+    MockWebSocket.CLOSED = 3;
+    global.WebSocket = MockWebSocket;
     wsService = new WebSocketService();
   });
 
@@ -26,7 +31,7 @@ describe('WebSocketService', () => {
 
   it('should connect to WebSocket server', () => {
     wsService.connect();
-    expect(global.WebSocket).toHaveBeenCalledWith('ws://localhost:8080/ws/ws', ['13']);
+    expect(global.WebSocket).toHaveBeenCalledWith('ws://localhost:8081/ws', ['13']);
   });
 
   it('should send messages when connected', () => {

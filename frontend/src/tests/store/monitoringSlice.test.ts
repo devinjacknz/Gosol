@@ -11,6 +11,8 @@ describe('monitoringSlice', () => {
       wsConnections: 0,
       activeOrders: 0,
     },
+    loading: false,
+    error: null
   };
 
   it('should handle initial state', () => {
