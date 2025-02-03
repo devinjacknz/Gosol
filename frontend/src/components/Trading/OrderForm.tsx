@@ -4,9 +4,10 @@ import { Order } from '@/pages/TradingView';
 interface OrderFormProps {
   onSubmit: (order: Omit<Order, 'id' | 'status' | 'timestamp'>) => void;
   disabled?: boolean;
+  'data-testid'?: string;
 }
 
-const OrderForm: React.FC<OrderFormProps> = ({ onSubmit, disabled = false }) => {
+const OrderForm: React.FC<OrderFormProps> = ({ onSubmit, disabled = false, 'data-testid': testId = 'order-form' }) => {
   const [orderType, setOrderType] = React.useState<'market' | 'limit'>('market');
   const [side, setSide] = React.useState<'buy' | 'sell'>('buy');
   const [size, setSize] = React.useState('');
@@ -28,7 +29,7 @@ const OrderForm: React.FC<OrderFormProps> = ({ onSubmit, disabled = false }) => 
   };
 
   return (
-    <div className="order-form" data-testid="order-form">
+    <div className="order-form" data-testid={testId}>
       <h3>Place Order</h3>
       <form onSubmit={handleSubmit}>
         <div className="form-group">
