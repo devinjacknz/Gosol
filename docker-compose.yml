@@ -9,11 +9,42 @@ services:
       - "2112:2112"
     environment:
       - GIN_MODE=release
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=deepseek-r1:1.5b
+      - REDIS_URL=redis://redis:6379
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      ollama:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    restart: unless-stopped
 
   frontend:
     build:
@@ -22,11 +53,12 @@ services:
     ports:
       - "80:80"
     environment:
-      - VITE_BACKEND_URL=http://backend:8080
-      - VITE_WS_URL=ws://backend:8081
-      - VITE_METRICS_URL=http://backend:2112
+      - VITE_API_URL=http://backend:8080
+      - VITE_WS_URL=ws://backend:8080/ws
+      - VITE_METRICS_URL=http://backend:8080/metrics
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
       interval: 30s
@@ -39,13 +71,29 @@ services:
       dockerfile: ollama.Dockerfile
     ports:
       - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/version || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 60s
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODEL=deepseek-r1:1.5b
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
 
 volumes:
   ollama_data:

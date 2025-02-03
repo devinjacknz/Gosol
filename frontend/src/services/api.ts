@@ -1,129 +1,60 @@
-import axios from 'axios'
-import { store } from '@/store'
-import { addAlert } from '@/store/monitoring/monitoringSlice'
+import axios, { AxiosInstance } from 'axios';
+import { Order, Position } from '@/pages/TradingView';
 
-// 创建 axios 实例
-const api = axios.create({
-  baseURL: process.env.VITE_API_URL || 'http://localhost:8080/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+export class ApiService {
+  private api: AxiosInstance;
 
-// 请求拦截器
-api.interceptors.request.use(
-  (config) => {
-    // 添加认证信息
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+  constructor() {
+    this.api = axios.create({
+      baseURL: import.meta.env.VITE_API_URL || 'http://backend:8080',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000,
+    });
+
+    if (this.api?.interceptors) {
+      this.api.interceptors.response.use(
+      response => response,
+      error => {
+        if (error.response) {
+          throw new Error(`API Error: ${error.response.status} - ${error.response.data?.message || error.message}`);
+        }
+        throw new Error(`Network Error: ${error.message}`);
+      }
+    );
     }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
   }
-)
 
-// 响应拦截器
-api.interceptors.response.use(
-  (response) => {
-    return response.data
-  },
-  (error) => {
-    // 处理错误
-    const message = error.response?.data?.message || error.message
-    store.dispatch(addAlert({
-      level: 'error',
-      message: `API Error: ${message}`,
-      source: 'api',
-    }))
-    return Promise.reject(error)
-  }
-)
+  getMarketData = async (symbol: string) => {
+    const response = await this.api.get(`/api/market/${symbol}`);
+    return response.data;
+  };
 
-// 市场数据 API
-export const marketApi = {
-  // 获取K线数据
-  getKlines: (symbol: string, interval: string, limit = 1000) =>
-    api.get(`/market/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`),
+  getPositions = async (): Promise<Position[]> => {
+    const response = await this.api.get('/api/positions');
+    return response.data;
+  };
 
-  // 获取行情深度
-  getOrderBook: (symbol: string, limit = 20) =>
-    api.get(`/market/depth?symbol=${symbol}&limit=${limit}`),
+  getOrders = async (): Promise<Order[]> => {
+    const response = await this.api.get('/api/orders');
+    return response.data;
+  };
 
-  // 获取最新成交
-  getTrades: (symbol: string, limit = 50) =>
-    api.get(`/market/trades?symbol=${symbol}&limit=${limit}`),
+  placeOrder = async (order: Omit<Order, 'id' | 'status' | 'timestamp'>): Promise<{ success: boolean }> => {
+    const response = await this.api.post('/api/orders', order);
+    return response.data;
+  };
+
+  cancelOrder = async (orderId: string): Promise<{ success: boolean }> => {
+    const response = await this.api.delete(`/api/orders/${orderId}`);
+    return response.data;
+  };
+
+  checkHealth = async (): Promise<Record<string, any>> => {
+    const response = await this.api.get('/health');
+    return response.data;
+  };
 }
 
-// 交易 API
-export const tradingApi = {
-  // 下单
-  placeOrder: (order: any) =>
-    api.post('/trading/orders', order),
-
-  // 取消订单
-  cancelOrder: (orderId: string) =>
-    api.delete(`/trading/orders/${orderId}`),
-
-  // 获取订单列表
-  getOrders: (params: any) =>
-    api.get('/trading/orders', { params }),
-
-  // 获取持仓列表
-  getPositions: () =>
-    api.get('/trading/positions'),
-}
-
-// 分析 API
-export const analysisApi = {
-  // 获取技术指标
-  getIndicators: (symbol: string, params: any) =>
-    api.get(`/analysis/indicators/${symbol}`, { params }),
-
-  // 获取市场分析
-  getAnalysis: (symbol: string) =>
-    api.get(`/analysis/market/${symbol}`),
-
-  // LLM 分析
-  getLLMAnalysis: (params: any) =>
-    api.post('/analysis/llm', params),
-}
-
-// 监控 API
-export const monitoringApi = {
-  // 获取系统指标
-  getMetrics: () =>
-    api.get('/monitoring/metrics'),
-
-  // 获取告警信息
-  getAlerts: () =>
-    api.get('/monitoring/alerts'),
-
-  // 获取系统状态
-  getStatus: () =>
-    api.get('/monitoring/status'),
-}
-
-// 用户 API
-export const userApi = {
-  // 登录
-  login: (credentials: any) =>
-    api.post('/auth/login', credentials),
-
-  // 注册
-  register: (userData: any) =>
-    api.post('/auth/register', userData),
-
-  // 获取用户信息
-  getProfile: () =>
-    api.get('/users/profile'),
-
-  // 更新用户信息
-  updateProfile: (data: any) =>
-    api.put('/users/profile', data),
-}
-
-export default api 
+export const apiService = new ApiService();

@@ -1,194 +1,81 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { wsService } from './websocket'
-import { store } from '@/store'
-import { updateMarketData } from '@/store/trading/tradingSlice'
-import { addAlert } from '@/store/monitoring/monitoringSlice'
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { WebSocketService } from './websocket';
 
-const mockDispatch = vi.fn();
-const mockStore = {
-  dispatch: mockDispatch,
-  getState: vi.fn(),
-  subscribe: vi.fn(),
-  replaceReducer: vi.fn(),
-};
-
-vi.mock('@/store', () => ({
-  store: mockStore,
-}));
-
-describe('WebSocket Service', () => {
-  let mockWebSocket: Partial<WebSocket>
-  let mockWebSocketCtor: ReturnType<typeof vi.fn>
+describe('WebSocketService', () => {
+  let wsService: WebSocketService;
+  let mockWebSocket: any;
 
   beforeEach(() => {
-    vi.resetAllMocks()
-    
+    vi.resetAllMocks();
     mockWebSocket = {
-      send: vi.fn(),
       close: vi.fn(),
+      send: vi.fn(),
       readyState: WebSocket.OPEN,
-      onopen: null,
-      onclose: null,
-      onmessage: null,
-      onerror: null,
-    }
+    };
+    global.WebSocket = vi.fn().mockImplementation(() => mockWebSocket);
+    wsService = new WebSocketService();
+  });
 
-    mockWebSocketCtor = vi.fn().mockImplementation(() => mockWebSocket)
-    vi.stubGlobal('WebSocket', mockWebSocketCtor)
+  it('connects to WebSocket server', () => {
+    wsService.connect();
+    expect(WebSocket).toHaveBeenCalledWith(expect.stringContaining('/ws'), ["13"]);
+  });
 
-    wsService.disconnect()
-  })
+  it('handles connection events', () => {
+    const onConnectedMock = vi.fn();
+    wsService.on('connected', onConnectedMock);
+    wsService.connect();
+    mockWebSocket.onopen();
+    expect(onConnectedMock).toHaveBeenCalled();
+  });
 
-  describe('Connection Management', () => {
-    it('initializes connection', () => {
-      wsService.initialize()
+  it('handles message events', () => {
+    const mockData = { type: 'market', data: { price: 50000 } };
+    const onMessageMock = vi.fn();
+    wsService.on('market', onMessageMock);
+    wsService.connect();
+    mockWebSocket.onmessage({ data: JSON.stringify(mockData) });
+    expect(onMessageMock).toHaveBeenCalledWith(mockData.data);
+  });
 
-      expect(WebSocket).toHaveBeenCalledWith(expect.stringContaining('/ws/'))
-    })
+  it('handles disconnection', () => {
+    const onDisconnectedMock = vi.fn();
+    wsService.on('disconnected', onDisconnectedMock);
+    wsService.connect();
+    mockWebSocket.onclose();
+    expect(onDisconnectedMock).toHaveBeenCalled();
+  });
 
-    it('handles connection success', () => {
-      wsService.initialize()
+  it('sends messages when connected', () => {
+    wsService.connect();
+    const message = { type: 'subscribe', channel: 'market:BTC-USD' };
+    wsService.send(message);
+    expect(mockWebSocket.send).toHaveBeenCalledWith(JSON.stringify(message));
+  });
 
-      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
-      ws.onopen?.({} as Event)
+  it('subscribes to channels', () => {
+    wsService.connect();
+    wsService.subscribe('market:BTC-USD');
+    expect(mockWebSocket.send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'subscribe',
+      channel: 'market:BTC-USD'
+    }));
+  });
 
-      expect(wsService['reconnectAttempts']).toBe(0)
-    })
+  it('unsubscribes from channels', () => {
+    wsService.connect();
+    wsService.unsubscribe('market:BTC-USD');
+    expect(mockWebSocket.send).toHaveBeenCalledWith(JSON.stringify({
+      type: 'unsubscribe',
+      channel: 'market:BTC-USD'
+    }));
+  });
 
-    it('handles disconnection', () => {
-      wsService.initialize()
-
-      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
-      ws.onclose?.({ reason: 'test close' } as CloseEvent)
-
-      expect(mockDispatch).toHaveBeenCalledWith(
-        addAlert({
-          level: 'warning',
-          message: expect.stringContaining('disconnected'),
-          source: 'websocket',
-        })
-      )
-    })
-
-    it('handles reconnection attempts', () => {
-      wsService.initialize()
-      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
-      ws.onclose?.({ reason: 'test close' } as CloseEvent)
-      expect(wsService['reconnectAttempts']).toBe(1)
-    })
-  })
-
-  describe('Market Data Handling', () => {
-    it('subscribes to market data', () => {
-      wsService.initialize()
-      wsService.subscribeMarketData('BTC/USDT')
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          type: 'subscribe',
-          symbol: 'BTC-USDT'
-        })
-      )
-    })
-
-    it('unsubscribes from market data', () => {
-      wsService.initialize()
-      wsService.unsubscribeMarketData('BTC/USDT')
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          type: 'unsubscribe',
-          symbol: 'BTC-USDT'
-        })
-      )
-    })
-
-    it('handles market data updates', () => {
-      wsService.initialize()
-
-      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
-      const mockData = {
-        type: 'market_data',
-        data: {
-          symbol: 'BTC-USDT',
-          price: 50000,
-        }
-      }
-      ws.onmessage?.({ data: JSON.stringify(mockData) } as MessageEvent)
-
-      expect(mockDispatch).toHaveBeenCalledWith(updateMarketData(mockData.data))
-    })
-  })
-
-  describe('Order Management', () => {
-    it('sends order', () => {
-      wsService.initialize()
-
-      const order = {
-        symbol: 'BTC/USDT',
-        side: 'buy',
-        price: 50000,
-        size: 1,
-      }
-
-      wsService.sendOrder(order)
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          type: 'placeOrder',
-          data: order
-        })
-      )
-    })
-
-    it('cancels order', () => {
-      wsService.initialize()
-      wsService.cancelOrder('123')
-
-      expect(mockWebSocket.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          type: 'cancelOrder',
-          data: { orderId: '123' }
-        })
-      )
-    })
-  })
-
-  describe('Error Handling', () => {
-    it('handles connection errors', () => {
-      wsService.initialize()
-
-      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
-      ws.onerror?.({ error: new Error('test error') } as ErrorEvent)
-
-      expect(mockDispatch).toHaveBeenCalledWith(
-        addAlert({
-          level: 'error',
-          message: expect.stringContaining('error'),
-          source: 'websocket',
-        })
-      )
-    })
-
-    it('handles reconnection failure', () => {
-      wsService.initialize()
-      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
-      
-      // Simulate max reconnection attempts
-      for (let i = 0; i <= wsService['maxReconnectAttempts']; i++) {
-        ws.onclose?.({ reason: 'test close' } as CloseEvent)
-      }
-
-      expect(wsService['reconnectAttempts']).toBe(wsService['maxReconnectAttempts'])
-    })
-  })
-
-  describe('Cleanup', () => {
-    it('disconnects properly', () => {
-      wsService.initialize()
-      wsService.disconnect()
-
-      expect(mockWebSocket.close).toHaveBeenCalled()
-    })
-  })
-})                          
+  it('handles heartbeat', () => {
+    vi.useFakeTimers();
+    wsService.connect();
+    vi.advanceTimersByTime(30000);
+    expect(mockWebSocket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'ping' }));
+    vi.useRealTimers();
+  });
+});

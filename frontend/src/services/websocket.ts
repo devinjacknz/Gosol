@@ -15,7 +15,7 @@ export class WebSocketService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8081';
+    this.baseUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
   }
 
   connect(): void {

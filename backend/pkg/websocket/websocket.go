@@ -4,7 +4,7 @@ import (
     "encoding/json"
     "github.com/gin-gonic/gin"
     "github.com/gorilla/websocket"
-    "github.com/devinjacknz/godydxhyber/pkg/monitoring"
+    "github.com/devinjacknz/godydxhyber/backend/pkg/monitoring"
     "net/http"
 )
 
