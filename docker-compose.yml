@@ -22,9 +22,9 @@ services:
     ports:
       - "80:80"
     environment:
-      - VITE_BACKEND_URL=http://backend:8080
-      - VITE_WS_URL=ws://backend:8081
-      - VITE_METRICS_URL=http://backend:2112
+      - VITE_API_URL=http://backend:8080
+      - VITE_WS_URL=ws://backend:8080/ws
+      - VITE_METRICS_URL=http://backend:8080/metrics
     depends_on:
       - backend
     healthcheck:
@@ -38,14 +38,16 @@ services:
       context: .
       dockerfile: ollama.Dockerfile
     ports:
-      - "11434:11434"
+      - "11435:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - OLLAMA_HOST=0.0.0.0
     volumes:
       - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 volumes:
   ollama_data:
