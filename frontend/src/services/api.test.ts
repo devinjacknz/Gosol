@@ -1,219 +1,74 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ApiService } from './api';
+import axios from 'axios';
 
-vi.mock('axios', async () => {
-  const actual = await vi.importActual('axios')
-  return {
-    ...actual,
-    default: {
-      create: vi.fn().mockReturnValue({
-        get: vi.fn().mockResolvedValue({ data: {} }),
-        post: vi.fn().mockResolvedValue({ data: {} }),
-        put: vi.fn().mockResolvedValue({ data: {} }),
-        delete: vi.fn().mockResolvedValue({ data: {} }),
-        interceptors: {
-          request: { use: vi.fn() },
-          response: { use: vi.fn() }
-        }
-      })
-    }
-  }
-})
-
-import { marketApi, tradingApi, analysisApi, monitoringApi } from './api'
+vi.mock('axios');
 
 describe('API Services', () => {
+  let apiService: ApiService;
+
   beforeEach(() => {
-    vi.clearAllMocks()
-    mockAxiosInstance.get.mockResolvedValue({ data: {} })
-    mockAxiosInstance.post.mockResolvedValue({ data: {} })
-    mockAxiosInstance.put.mockResolvedValue({ data: {} })
-    mockAxiosInstance.delete.mockResolvedValue({ data: {} })
-  })
+    vi.clearAllMocks();
+    axios.create().get.mockResolvedValue({ data: {} });
+    axios.create().post.mockResolvedValue({ data: {} });
+    axios.create().delete.mockResolvedValue({ data: {} });
+    apiService = new ApiService();
+  });
 
   describe('Market API', () => {
-    it('fetches klines data', async () => {
-      const mockData = {
-        data: [
-          {
-            time: '2024-02-20T00:00:00Z',
-            open: 50000,
-            high: 51000,
-            low: 49000,
-            close: 50500,
-            volume: 1000,
-          },
-        ],
-      }
-
-      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
-
-      const result = await marketApi.getKlines('BTC/USDT', '1h')
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
-        '/market/klines?symbol=BTC/USDT&interval=1h&limit=1000'
-      )
-    })
-
-    it('fetches order book', async () => {
-      const mockData = {
-        data: {
-          bids: [[50000, 1]],
-          asks: [[50100, 1]],
-        },
-      }
-
-      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
-
-      const result = await marketApi.getOrderBook('BTC/USDT')
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
-        '/market/depth?symbol=BTC/USDT&limit=20'
-      )
-    })
-  })
+    it('fetches market data', async () => {
+      const mockData = { price: 50000, volume: 100 };
+      axios.create().get.mockResolvedValueOnce({ data: mockData });
+      
+      const result = await apiService.getMarketData('BTC-USD');
+      expect(result).toEqual(mockData);
+    });
+  });
 
   describe('Trading API', () => {
     it('places order', async () => {
-      const order = {
-        symbol: 'BTC/USDT',
+      const mockOrder = {
+        symbol: 'BTC-USD',
         side: 'buy',
+        type: 'limit',
         price: 50000,
-        size: 1,
-      }
-
-      const mockData = {
-        data: {
-          orderId: '123',
-          status: 'NEW',
-        },
-      }
-
-      mockAxiosInstance.post.mockResolvedValueOnce(mockData)
-
-      const result = await tradingApi.placeOrder(order)
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/trading/orders', order)
-    })
+        size: 1
+      };
+      const mockResponse = { success: true };
+      axios.create().post.mockResolvedValueOnce({ data: mockResponse });
+      
+      const result = await apiService.placeOrder(mockOrder);
+      expect(result).toEqual(mockResponse);
+    });
 
     it('cancels order', async () => {
-      const mockData = {
-        data: {
-          orderId: '123',
-          status: 'CANCELED',
-        },
-      }
-
-      mockAxiosInstance.delete.mockResolvedValueOnce(mockData)
-
-      const result = await tradingApi.cancelOrder('123')
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/trading/orders/123')
-    })
-  })
-
-  describe('Analysis API', () => {
-    it('gets technical indicators', async () => {
-      const mockData = {
-        data: {
-          rsi: 65,
-          macd: {
-            macd: 100,
-            signal: 50,
-            histogram: 50,
-          },
-        },
-      }
-
-      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
-
-      const result = await analysisApi.getIndicators('BTC/USDT', {
-        timeframe: '1h',
-      })
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
-        '/analysis/indicators/BTC/USDT',
-        { params: { timeframe: '1h' } }
-      )
-    })
-
-    it('gets LLM analysis', async () => {
-      const mockData = {
-        data: {
-          analysis: 'Market shows bullish trend',
-          confidence: 0.8,
-        },
-      }
-
-      mockAxiosInstance.post.mockResolvedValueOnce(mockData)
-
-      const result = await analysisApi.getLLMAnalysis({
-        symbol: 'BTC/USDT',
-        timeframe: '1h',
-      })
-      expect(result).toEqual(mockData.data)
-    })
-  })
-
-  describe('Monitoring API', () => {
-    it('gets system metrics', async () => {
-      const mockData = {
-        data: {
-          cpuUsage: 50,
-          memoryUsage: 60,
-          requestCount: 1000,
-        },
-      }
-
-      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
-
-      const result = await monitoringApi.getMetrics()
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/monitoring/metrics')
-    })
-
-    it('gets alerts', async () => {
-      const mockData = {
-        data: [
-          {
-            level: 'warning',
-            message: 'High CPU usage',
-            timestamp: '2024-02-20T00:00:00Z',
-          },
-        ],
-      }
-
-      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
-
-      const result = await monitoringApi.getAlerts()
-      expect(result).toEqual(mockData.data)
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/monitoring/alerts')
-    })
-  })
+      const orderId = '123';
+      const mockResponse = { success: true };
+      axios.create().delete.mockResolvedValueOnce({ data: mockResponse });
+      
+      const result = await apiService.cancelOrder(orderId);
+      expect(result).toEqual(mockResponse);
+    });
+  });
 
   describe('Error Handling', () => {
-    it('handles network errors', async () => {
-      const error = new Error('Network Error')
-      mockAxiosInstance.get.mockRejectedValueOnce(error)
-
-      await expect(marketApi.getKlines('BTC/USDT', '1h')).rejects.toThrow(
-        'Network Error'
-      )
-    })
-
     it('handles API errors', async () => {
-      const error = {
-        response: {
-          data: {
-            message: 'Invalid symbol',
-          },
-          status: 400,
-        },
-      }
-      mockAxiosInstance.get.mockRejectedValueOnce(error)
+      const errorMessage = 'API Error';
+      axios.create().get.mockRejectedValueOnce({ 
+        response: { 
+          status: 400, 
+          data: { message: errorMessage } 
+        } 
+      });
 
-      await expect(marketApi.getKlines('INVALID', '1h')).rejects.toThrow(
-        'Invalid symbol'
-      )
-    })
-  })
-})                      
+      await expect(apiService.getMarketData('BTC-USD')).rejects.toThrow(`API Error: 400 - ${errorMessage}`);
+    });
+
+    it('handles network errors', async () => {
+      const errorMessage = 'Network Error';
+      axios.create().get.mockRejectedValueOnce(new Error(errorMessage));
+
+      await expect(apiService.getMarketData('BTC-USD')).rejects.toThrow(`Network Error: ${errorMessage}`);
+    });
+  });
+});

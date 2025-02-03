@@ -1,16 +1,18 @@
-import { vi } from 'vitest'
+import { vi } from 'vitest';
 
-export const mockAxiosInstance = {
-  get: vi.fn().mockResolvedValue({ data: {} }),
-  post: vi.fn().mockResolvedValue({ data: {} }),
-  put: vi.fn().mockResolvedValue({ data: {} }),
-  delete: vi.fn().mockResolvedValue({ data: {} }),
+const mockAxiosInstance = {
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+  delete: vi.fn(),
+  create: vi.fn().mockReturnThis(),
   interceptors: {
-    request: { use: vi.fn() },
-    response: { use: vi.fn() }
+    request: { use: vi.fn(), eject: vi.fn() },
+    response: { use: vi.fn(), eject: vi.fn() }
   }
-}
+};
 
 export default {
+  ...mockAxiosInstance,
   create: () => mockAxiosInstance
-}
+};
