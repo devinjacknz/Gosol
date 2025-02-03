@@ -24,7 +24,7 @@ describe('monitoringSlice', () => {
   });
 
   it('should handle addAlert', () => {
-    const mockAlert = { level: 'warning', message: 'Test alert', source: 'test' };
+    const mockAlert = { level: 'warning' as const, message: 'Test alert', source: 'test' };
     const state = monitoringReducer(initialState, addAlert(mockAlert));
     expect(state.alerts[0]).toMatchObject(mockAlert);
     expect(state.alerts[0].timestamp).toBeDefined();
