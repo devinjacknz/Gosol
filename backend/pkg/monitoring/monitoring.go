@@ -18,10 +18,29 @@ var (
         },
         []string{"type", "channel"},
     )
+    llmRequests = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "llm_requests_total",
+            Help: "Total number of LLM requests",
+        },
+        []string{"model", "status"},
+    )
+    llmFallbacks = prometheus.NewCounter(prometheus.CounterOpts{
+        Name: "llm_fallbacks_total",
+        Help: "Total number of LLM fallback occurrences",
+    })
 )
 
 func init() {
-    prometheus.MustRegister(wsConnections, wsMessages)
+    prometheus.MustRegister(wsConnections, wsMessages, llmRequests, llmFallbacks)
+}
+
+func RecordLLMRequest(model, status string) {
+    llmRequests.WithLabelValues(model, status).Inc()
+}
+
+func RecordLLMFallback() {
+    llmFallbacks.Inc()
 }
 
 func RecordMessage(msgType, channel string) {
