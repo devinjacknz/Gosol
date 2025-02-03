@@ -31,7 +31,7 @@ describe('WebSocketService', () => {
 
   it('should connect to WebSocket server', () => {
     wsService.connect();
-    expect(global.WebSocket).toHaveBeenCalledWith('ws://localhost:8081/ws', ['13']);
+    expect(global.WebSocket).toHaveBeenCalledWith('ws://localhost:8080/ws/ws', ['13']);
   });
 
   it('should send messages when connected', () => {

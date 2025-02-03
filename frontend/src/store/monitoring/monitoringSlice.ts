@@ -57,27 +57,5 @@ const monitoringSlice = createSlice({
   },
 });
 
-const monitoringSlice = createSlice({
-  name: 'monitoring',
-  initialState,
-  reducers: {
-    addAlert: (state, action: PayloadAction<Alert>) => {
-      state.alerts.unshift({
-        ...action.payload,
-        timestamp: Date.now(),
-      });
-    },
-    updateMetrics: (state, action: PayloadAction<Metrics>) => {
-      state.metrics = action.payload;
-    },
-    setLoading: (state, action: PayloadAction<boolean>) => {
-      state.loading = action.payload;
-    },
-    setError: (state, action: PayloadAction<string | null>) => {
-      state.error = action.payload;
-    },
-  },
-});
-
 export const { addAlert, updateMetrics } = monitoringSlice.actions;
 export default monitoringSlice.reducer;
