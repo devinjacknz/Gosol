@@ -1,103 +1,137 @@
-import { io, Socket } from 'socket.io-client'
-import { store } from '@/store'
-import { updateMarketData } from '@/store/trading/tradingSlice'
-import { addAlert } from '@/store/monitoring/monitoringSlice'
+interface WebSocketMessage {
+  type: string;
+  channel?: string;
+  data?: any;
+}
 
-class WebSocketService {
-  private socket: Socket | null = null
-  private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
-  private reconnectDelay = 1000
+export class WebSocketService {
+  private ws: WebSocket | null = null;
+  private eventHandlers: { [key: string]: ((data: any) => void)[] } = {};
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 1000;
+  private heartbeatInterval: number | null = null;
+  private pingTimeout: number | null = null;
+  private baseUrl: string;
 
   constructor() {
-    this.initialize()
+    this.baseUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8081';
   }
 
-  private initialize() {
-    this.socket = io(process.env.VITE_WS_URL || 'ws://localhost:8080/ws', {
-      reconnection: true,
-      reconnectionDelay: this.reconnectDelay,
-      reconnectionAttempts: this.maxReconnectAttempts,
-    })
+  connect(): void {
+    if (this.ws) {
+      this.ws.close();
+    }
 
-    this.setupEventListeners()
+    this.ws = new WebSocket(`${this.baseUrl}/ws`, ["13"]);
+
+    this.ws.onopen = () => {
+      this.reconnectAttempts = 0;
+      this.startHeartbeat();
+      this.trigger('connected');
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const message: WebSocketMessage = JSON.parse(event.data);
+        if (message.type === 'pong') {
+          if (this.pingTimeout) {
+            clearTimeout(this.pingTimeout);
+            this.pingTimeout = null;
+          }
+          return;
+        }
+        this.trigger(message.type, message.data);
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
+      }
+    };
+
+    this.ws.onclose = () => {
+      this.stopHeartbeat();
+      this.trigger('disconnected');
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        setTimeout(() => {
+          this.reconnectAttempts++;
+          this.connect();
+        }, this.reconnectDelay * this.reconnectAttempts);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      this.trigger('error', error);
+    };
   }
 
-  private setupEventListeners() {
-    if (!this.socket) return
-
-    // 连接事件
-    this.socket.on('connect', () => {
-      console.log('WebSocket connected')
-      this.reconnectAttempts = 0
-    })
-
-    // 断开连接事件
-    this.socket.on('disconnect', (reason) => {
-      console.log('WebSocket disconnected:', reason)
-      store.dispatch(addAlert({
-        level: 'warning',
-        message: `WebSocket disconnected: ${reason}`,
-        source: 'websocket',
-      }))
-    })
-
-    // 重连事件
-    this.socket.on('reconnect_attempt', (attempt) => {
-      this.reconnectAttempts = attempt
-      console.log(`WebSocket reconnection attempt ${attempt}`)
-    })
-
-    // 错误事件
-    this.socket.on('error', (error) => {
-      console.error('WebSocket error:', error)
-      store.dispatch(addAlert({
-        level: 'error',
-        message: `WebSocket error: ${error.message}`,
-        source: 'websocket',
-      }))
-    })
-
-    // 市场数据更新
-    this.socket.on('marketData', (data) => {
-      store.dispatch(updateMarketData(data))
-    })
-
-    // 订单更新
-    this.socket.on('orderUpdate', (data) => {
-      // 处理订单更新
-    })
-
-    // 持仓更新
-    this.socket.on('positionUpdate', (data) => {
-      // 处理持仓更新
-    })
+  private startHeartbeat(): void {
+    this.heartbeatInterval = window.setInterval(() => {
+      if (this.isConnected()) {
+        this.send({ type: 'ping' });
+        this.pingTimeout = window.setTimeout(() => {
+          if (this.ws) {
+            this.ws.close();
+          }
+        }, 5000);
+      }
+    }, 30000);
   }
 
-  // 订阅市场数据
-  public subscribeMarketData(symbol: string) {
-    this.socket?.emit('subscribe', { channel: 'marketData', symbol })
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      window.clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    if (this.pingTimeout) {
+      window.clearTimeout(this.pingTimeout);
+      this.pingTimeout = null;
+    }
   }
 
-  // 取消订阅市场数据
-  public unsubscribeMarketData(symbol: string) {
-    this.socket?.emit('unsubscribe', { channel: 'marketData', symbol })
+  disconnect(): void {
+    this.stopHeartbeat();
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
   }
 
-  // 发送订单
-  public sendOrder(order: any) {
-    this.socket?.emit('placeOrder', order)
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  // 取消订单
-  public cancelOrder(orderId: string) {
-    this.socket?.emit('cancelOrder', { orderId })
+  send(message: WebSocketMessage): void {
+    if (this.isConnected()) {
+      this.ws?.send(JSON.stringify(message));
+    }
   }
 
-  // 关闭连接
-  public disconnect() {
-    this.socket?.disconnect()
+  subscribe(channel: string): void {
+    this.send({ type: 'subscribe', channel });
+  }
+
+  unsubscribe(channel: string): void {
+    this.send({ type: 'unsubscribe', channel });
+  }
+
+  on(event: string, callback: (data: any) => void): void {
+    if (!this.eventHandlers[event]) {
+      this.eventHandlers[event] = [];
+    }
+    this.eventHandlers[event].push(callback);
+  }
+
+  off(event: string, callback: (data: any) => void): void {
+    if (!this.eventHandlers[event]) return;
+    this.eventHandlers[event] = this.eventHandlers[event].filter(
+      (cb) => cb !== callback
+    );
+  }
+
+  private trigger(event: string, data?: any): void {
+    if (!this.eventHandlers[event]) return;
+    this.eventHandlers[event].forEach((callback) => callback(data));
   }
 }
 
-export const wsService = new WebSocketService() 
+export const wsService = new WebSocketService();

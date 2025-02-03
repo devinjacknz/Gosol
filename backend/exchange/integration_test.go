@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devinjacknz/godydxhyber/backend/exchange/dydx"
+	"github.com/devinjacknz/godydxhyber/backend/exchange/hyperliquid"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -68,10 +70,10 @@ func (s *ExchangeIntegrationSuite) TestOrderFlow() {
 		client := newMockHyperliquidClient()
 
 		// Create order
-		order, err := client.CreateOrder(s.ctx, CreateOrderRequest{
-			Market: "BTC-USD",
-			Side:   "BUY",
-			Type:   "LIMIT",
+		order, err := client.CreateOrder(s.ctx, hyperliquid.CreateOrderRequest{
+			Symbol: "BTC-USD",
+			Side:   hyperliquid.OrderSideBuy,
+			Type:   hyperliquid.OrderTypeLimit,
 			Size:   1.0,
 			Price:  50000.0,
 		})
@@ -97,10 +99,10 @@ func (s *ExchangeIntegrationSuite) TestOrderFlow() {
 		client := newMockDydxClient()
 
 		// Create order
-		order, err := client.CreateOrder(s.ctx, CreateOrderRequest{
+		order, err := client.CreateOrder(s.ctx, dydx.CreateOrderRequest{
 			Market: "BTC-USD",
-			Side:   "BUY",
-			Type:   "LIMIT",
+			Side:   dydx.OrderSideBuy,
+			Type:   dydx.OrderTypeLimit,
 			Size:   1.0,
 			Price:  50000.0,
 		})
@@ -134,10 +136,10 @@ func (s *ExchangeIntegrationSuite) TestPositionFlow() {
 		s.Empty(positions)
 
 		// Create position via order
-		order, err := client.CreateOrder(s.ctx, CreateOrderRequest{
-			Market: "BTC-USD",
-			Side:   "BUY",
-			Type:   "MARKET",
+		order, err := client.CreateOrder(s.ctx, hyperliquid.CreateOrderRequest{
+			Symbol: "BTC-USD",
+			Side:   hyperliquid.OrderSideBuy,
+			Type:   hyperliquid.OrderTypeMarket,
 			Size:   1.0,
 		})
 		s.NoError(err)
@@ -148,7 +150,7 @@ func (s *ExchangeIntegrationSuite) TestPositionFlow() {
 		positions, err = client.GetPositions(s.ctx)
 		s.NoError(err)
 		s.Len(positions, 1)
-		s.Equal("BTC-USD", positions[0].Market)
+		s.Equal("BTC-USD", positions[0].Symbol)
 		s.Equal(1.0, positions[0].Size)
 	})
 
@@ -161,10 +163,10 @@ func (s *ExchangeIntegrationSuite) TestPositionFlow() {
 		s.Empty(positions)
 
 		// Create position via order
-		order, err := client.CreateOrder(s.ctx, CreateOrderRequest{
+		order, err := client.CreateOrder(s.ctx, dydx.CreateOrderRequest{
 			Market: "BTC-USD",
-			Side:   "BUY",
-			Type:   "MARKET",
+			Side:   dydx.OrderSideBuy,
+			Type:   dydx.OrderTypeMarket,
 			Size:   1.0,
 		})
 		s.NoError(err)

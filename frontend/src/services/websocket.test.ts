@@ -1,32 +1,41 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { io } from 'socket.io-client'
 import { wsService } from './websocket'
 import { store } from '@/store'
 import { updateMarketData } from '@/store/trading/tradingSlice'
 import { addAlert } from '@/store/monitoring/monitoringSlice'
 
-vi.mock('socket.io-client')
-vi.mock('@/store')
+const mockDispatch = vi.fn();
+const mockStore = {
+  dispatch: mockDispatch,
+  getState: vi.fn(),
+  subscribe: vi.fn(),
+  replaceReducer: vi.fn(),
+};
+
+vi.mock('@/store', () => ({
+  store: mockStore,
+}));
 
 describe('WebSocket Service', () => {
-  let mockSocket: any
-  let mockStore: any
+  let mockWebSocket: Partial<WebSocket>
+  let mockWebSocketCtor: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    mockSocket = {
-      on: vi.fn(),
-      emit: vi.fn(),
-      disconnect: vi.fn(),
+    vi.resetAllMocks()
+    
+    mockWebSocket = {
+      send: vi.fn(),
+      close: vi.fn(),
+      readyState: WebSocket.OPEN,
+      onopen: null,
+      onclose: null,
+      onmessage: null,
+      onerror: null,
     }
 
-    mockStore = {
-      dispatch: vi.fn(),
-    }
+    mockWebSocketCtor = vi.fn().mockImplementation(() => mockWebSocket)
+    vi.stubGlobal('WebSocket', mockWebSocketCtor)
 
-    ;(io as any).mockReturnValue(mockSocket)
-    ;(store as any).mockReturnValue(mockStore)
-
-    // Reset service
     wsService.disconnect()
   })
 
@@ -34,20 +43,14 @@ describe('WebSocket Service', () => {
     it('initializes connection', () => {
       wsService.initialize()
 
-      expect(io).toHaveBeenCalledWith(expect.any(String), {
-        reconnection: true,
-        reconnectionDelay: expect.any(Number),
-        reconnectionAttempts: expect.any(Number),
-      })
+      expect(WebSocket).toHaveBeenCalledWith(expect.stringContaining('/ws/'))
     })
 
     it('handles connection success', () => {
       wsService.initialize()
 
-      const connectHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'connect'
-      )[1]
-      connectHandler()
+      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
+      ws.onopen?.({} as Event)
 
       expect(wsService['reconnectAttempts']).toBe(0)
     })
@@ -55,12 +58,10 @@ describe('WebSocket Service', () => {
     it('handles disconnection', () => {
       wsService.initialize()
 
-      const disconnectHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'disconnect'
-      )[1]
-      disconnectHandler('transport close')
+      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
+      ws.onclose?.({ reason: 'test close' } as CloseEvent)
 
-      expect(store.dispatch).toHaveBeenCalledWith(
+      expect(mockDispatch).toHaveBeenCalledWith(
         addAlert({
           level: 'warning',
           message: expect.stringContaining('disconnected'),
@@ -71,12 +72,8 @@ describe('WebSocket Service', () => {
 
     it('handles reconnection attempts', () => {
       wsService.initialize()
-
-      const reconnectHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'reconnect_attempt'
-      )[1]
-      reconnectHandler(1)
-
+      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
+      ws.onclose?.({ reason: 'test close' } as CloseEvent)
       expect(wsService['reconnectAttempts']).toBe(1)
     })
   })
@@ -86,37 +83,40 @@ describe('WebSocket Service', () => {
       wsService.initialize()
       wsService.subscribeMarketData('BTC/USDT')
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('subscribe', {
-        channel: 'marketData',
-        symbol: 'BTC/USDT',
-      })
+      expect(mockWebSocket.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'subscribe',
+          symbol: 'BTC-USDT'
+        })
+      )
     })
 
     it('unsubscribes from market data', () => {
       wsService.initialize()
       wsService.unsubscribeMarketData('BTC/USDT')
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('unsubscribe', {
-        channel: 'marketData',
-        symbol: 'BTC/USDT',
-      })
+      expect(mockWebSocket.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'unsubscribe',
+          symbol: 'BTC-USDT'
+        })
+      )
     })
 
     it('handles market data updates', () => {
       wsService.initialize()
 
-      const marketDataHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'marketData'
-      )[1]
-
+      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
       const mockData = {
-        symbol: 'BTC/USDT',
-        price: 50000,
+        type: 'market_data',
+        data: {
+          symbol: 'BTC-USDT',
+          price: 50000,
+        }
       }
+      ws.onmessage?.({ data: JSON.stringify(mockData) } as MessageEvent)
 
-      marketDataHandler(mockData)
-
-      expect(store.dispatch).toHaveBeenCalledWith(updateMarketData(mockData))
+      expect(mockDispatch).toHaveBeenCalledWith(updateMarketData(mockData.data))
     })
   })
 
@@ -133,16 +133,24 @@ describe('WebSocket Service', () => {
 
       wsService.sendOrder(order)
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('placeOrder', order)
+      expect(mockWebSocket.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'placeOrder',
+          data: order
+        })
+      )
     })
 
     it('cancels order', () => {
       wsService.initialize()
       wsService.cancelOrder('123')
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('cancelOrder', {
-        orderId: '123',
-      })
+      expect(mockWebSocket.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'cancelOrder',
+          data: { orderId: '123' }
+        })
+      )
     })
   })
 
@@ -150,14 +158,10 @@ describe('WebSocket Service', () => {
     it('handles connection errors', () => {
       wsService.initialize()
 
-      const errorHandler = mockSocket.on.mock.calls.find(
-        call => call[0] === 'error'
-      )[1]
+      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
+      ws.onerror?.({ error: new Error('test error') } as ErrorEvent)
 
-      const error = new Error('Connection failed')
-      errorHandler(error)
-
-      expect(store.dispatch).toHaveBeenCalledWith(
+      expect(mockDispatch).toHaveBeenCalledWith(
         addAlert({
           level: 'error',
           message: expect.stringContaining('error'),
@@ -168,13 +172,11 @@ describe('WebSocket Service', () => {
 
     it('handles reconnection failure', () => {
       wsService.initialize()
-
+      const ws = mockWebSocketCtor.mock.results[0].value as WebSocket
+      
       // Simulate max reconnection attempts
       for (let i = 0; i <= wsService['maxReconnectAttempts']; i++) {
-        const reconnectHandler = mockSocket.on.mock.calls.find(
-          call => call[0] === 'reconnect_attempt'
-        )[1]
-        reconnectHandler(i)
+        ws.onclose?.({ reason: 'test close' } as CloseEvent)
       }
 
       expect(wsService['reconnectAttempts']).toBe(wsService['maxReconnectAttempts'])
@@ -186,7 +188,7 @@ describe('WebSocket Service', () => {
       wsService.initialize()
       wsService.disconnect()
 
-      expect(mockSocket.disconnect).toHaveBeenCalled()
+      expect(mockWebSocket.close).toHaveBeenCalled()
     })
   })
-}) 
+})                          

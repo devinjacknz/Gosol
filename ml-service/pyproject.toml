@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "ml-service"
+version = "0.1.0"
+description = "ML Service for Trading Bot"
+authors = ["Devin <devin@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = "^0.24.0"
+numpy = "^1.24.0"
+pandas = "^2.0.0"
+scikit-learn = "^1.3.0"
+scipy = "^1.10.0"
+websockets = "^11.0.0"
+aiohttp = "^3.8.0"
+python-dotenv = "^1.0.0"
+pydantic = "^2.0.0"
+loguru = "^0.7.0"
+streaming-indicators = "^0.1.7"
+pandas-ta = "0.3.14b0"
+psutil = "^5.9.0"
+prometheus-client = "^0.19.0"
+pydantic-settings = "^2.1.0"
+httpx = "^0.25.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.23.0"
+httpx = "^0.25.0"
+black = "^23.10.0"
+isort = "^5.12.0"
+mypy = "^1.6.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=. --cov-report=term-missing"
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/leonzhao/gosol/backend/llm"
+	"github.com/devinjacknz/godydxhyber/backend/llm"
 )
 
 func main() {

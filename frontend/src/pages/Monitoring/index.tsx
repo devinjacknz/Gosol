@@ -167,14 +167,15 @@ const Monitoring = () => {
                 suffix="ms"
                 loading={loading}
               />
-              <MetricCard
-                title="Token 生成速率"
-                value={metrics?.tokenGenerationRate || 0}
-                precision={2}
-                suffix="tokens/s"
-                loading={loading}
-                style={{ marginTop: 16 }}
-              />
+              <div style={{ marginTop: 16 }}>
+                <MetricCard
+                  title="Token 生成速率"
+                  value={metrics?.tokenGenerationRate || 0}
+                  precision={2}
+                  suffix="tokens/s"
+                  loading={loading}
+                />
+              </div>
             </Card>
             <Card title="API 性能">
               <MetricCard
@@ -184,14 +185,15 @@ const Monitoring = () => {
                 suffix="%"
                 loading={loading}
               />
-              <MetricCard
-                title="平均延迟"
-                value={metrics?.apiLatency || 0}
-                precision={2}
-                suffix="ms"
-                loading={loading}
-                style={{ marginTop: 16 }}
-              />
+              <div style={{ marginTop: 16 }}>
+                <MetricCard
+                  title="平均延迟"
+                  value={metrics?.apiLatency || 0}
+                  precision={2}
+                  suffix="ms"
+                  loading={loading}
+                />
+              </div>
             </Card>
             <Card title="系统健康度">
               <MetricCard
@@ -201,13 +203,14 @@ const Monitoring = () => {
                 suffix="%"
                 loading={loading}
               />
-              <MetricCard
-                title="错误数量"
-                value={metrics?.errorCount || 0}
-                precision={0}
-                loading={loading}
-                style={{ marginTop: 16 }}
-              />
+              <div style={{ marginTop: 16 }}>
+                <MetricCard
+                  title="错误数量"
+                  value={metrics?.errorCount || 0}
+                  precision={0}
+                  loading={loading}
+                />
+              </div>
             </Card>
           </div>
         </Card>
@@ -216,4 +219,4 @@ const Monitoring = () => {
   )
 }
 
-export default Monitoring 
+export default Monitoring  

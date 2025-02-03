@@ -16,6 +16,8 @@ const createTestStore = (initialState = {}) => {
         orders: [],
         positions: [],
         selectedSymbol: 'BTC/USDT',
+        loading: false,
+        error: null,
         ...initialState,
       },
     },
@@ -154,4 +156,4 @@ describe('TradingView Component', () => {
       expect(state.trading.selectedSymbol).toBe('ETH/USDT')
     })
   })
-}) 
+})  

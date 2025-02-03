@@ -13,6 +13,7 @@ interface MetricCardProps {
     isUpGood?: boolean
   }
   loading?: boolean
+  style?: React.CSSProperties
 }
 
 export const MetricCard = ({
@@ -24,6 +25,7 @@ export const MetricCard = ({
   suffix,
   trend,
   loading,
+  style,
 }: MetricCardProps) => {
   const getTrendColor = (trendValue: number, isUpGood = true) => {
     if (trendValue > 0) {
@@ -55,7 +57,7 @@ export const MetricCard = ({
   }
 
   return (
-    <Card className="metric-card" loading={loading}>
+    <Card className="metric-card" loading={loading} style={style}>
       <Statistic
         title={title}
         value={value}
@@ -69,4 +71,4 @@ export const MetricCard = ({
       {renderTrend()}
     </Card>
   )
-} 
+}  

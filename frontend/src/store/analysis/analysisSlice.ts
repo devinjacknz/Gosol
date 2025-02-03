@@ -20,11 +20,14 @@ const initialState: AnalysisState = {
 export const analyzeMarket = createAsyncThunk(
   'analysis/analyzeMarket',
   async (params: any) => {
-    const [indicators, analysis] = await Promise.all([
+    const [indicatorsResponse, analysisResponse] = await Promise.all([
       analysisApi.getIndicators(params.symbol, params),
       analysisApi.getAnalysis(params.symbol),
     ])
-    return { indicators, analysis }
+    return { 
+      indicators: indicatorsResponse.data,
+      analysis: analysisResponse.data 
+    }
   }
 )
 
@@ -32,7 +35,7 @@ export const generateReport = createAsyncThunk(
   'analysis/generateReport',
   async (params: any) => {
     const response = await analysisApi.getLLMAnalysis(params)
-    return response
+    return response.data
   }
 )
 
@@ -61,4 +64,4 @@ const analysisSlice = createSlice({
   },
 })
 
-export default analysisSlice.reducer 
+export default analysisSlice.reducer    

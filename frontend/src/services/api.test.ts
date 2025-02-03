@@ -1,13 +1,33 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import axios from 'axios'
-import { marketApi, tradingApi, analysisApi, monitoringApi } from './api'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('axios')
-const mockedAxios = axios as jest.Mocked<typeof axios>
+vi.mock('axios', async () => {
+  const actual = await vi.importActual('axios')
+  return {
+    ...actual,
+    default: {
+      create: vi.fn().mockReturnValue({
+        get: vi.fn().mockResolvedValue({ data: {} }),
+        post: vi.fn().mockResolvedValue({ data: {} }),
+        put: vi.fn().mockResolvedValue({ data: {} }),
+        delete: vi.fn().mockResolvedValue({ data: {} }),
+        interceptors: {
+          request: { use: vi.fn() },
+          response: { use: vi.fn() }
+        }
+      })
+    }
+  }
+})
+
+import { marketApi, tradingApi, analysisApi, monitoringApi } from './api'
 
 describe('API Services', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockAxiosInstance.get.mockResolvedValue({ data: {} })
+    mockAxiosInstance.post.mockResolvedValue({ data: {} })
+    mockAxiosInstance.put.mockResolvedValue({ data: {} })
+    mockAxiosInstance.delete.mockResolvedValue({ data: {} })
   })
 
   describe('Market API', () => {
@@ -25,11 +45,11 @@ describe('API Services', () => {
         ],
       }
 
-      mockedAxios.get.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
 
       const result = await marketApi.getKlines('BTC/USDT', '1h')
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         '/market/klines?symbol=BTC/USDT&interval=1h&limit=1000'
       )
     })
@@ -42,11 +62,11 @@ describe('API Services', () => {
         },
       }
 
-      mockedAxios.get.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
 
       const result = await marketApi.getOrderBook('BTC/USDT')
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         '/market/depth?symbol=BTC/USDT&limit=20'
       )
     })
@@ -68,11 +88,11 @@ describe('API Services', () => {
         },
       }
 
-      mockedAxios.post.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.post.mockResolvedValueOnce(mockData)
 
       const result = await tradingApi.placeOrder(order)
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.post).toHaveBeenCalledWith('/trading/orders', order)
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/trading/orders', order)
     })
 
     it('cancels order', async () => {
@@ -83,11 +103,11 @@ describe('API Services', () => {
         },
       }
 
-      mockedAxios.delete.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.delete.mockResolvedValueOnce(mockData)
 
       const result = await tradingApi.cancelOrder('123')
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.delete).toHaveBeenCalledWith('/trading/orders/123')
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/trading/orders/123')
     })
   })
 
@@ -104,13 +124,13 @@ describe('API Services', () => {
         },
       }
 
-      mockedAxios.get.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
 
       const result = await analysisApi.getIndicators('BTC/USDT', {
         timeframe: '1h',
       })
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         '/analysis/indicators/BTC/USDT',
         { params: { timeframe: '1h' } }
       )
@@ -124,7 +144,7 @@ describe('API Services', () => {
         },
       }
 
-      mockedAxios.post.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.post.mockResolvedValueOnce(mockData)
 
       const result = await analysisApi.getLLMAnalysis({
         symbol: 'BTC/USDT',
@@ -144,11 +164,11 @@ describe('API Services', () => {
         },
       }
 
-      mockedAxios.get.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
 
       const result = await monitoringApi.getMetrics()
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.get).toHaveBeenCalledWith('/monitoring/metrics')
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/monitoring/metrics')
     })
 
     it('gets alerts', async () => {
@@ -162,18 +182,18 @@ describe('API Services', () => {
         ],
       }
 
-      mockedAxios.get.mockResolvedValueOnce(mockData)
+      mockAxiosInstance.get.mockResolvedValueOnce(mockData)
 
       const result = await monitoringApi.getAlerts()
       expect(result).toEqual(mockData.data)
-      expect(mockedAxios.get).toHaveBeenCalledWith('/monitoring/alerts')
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/monitoring/alerts')
     })
   })
 
   describe('Error Handling', () => {
     it('handles network errors', async () => {
       const error = new Error('Network Error')
-      mockedAxios.get.mockRejectedValueOnce(error)
+      mockAxiosInstance.get.mockRejectedValueOnce(error)
 
       await expect(marketApi.getKlines('BTC/USDT', '1h')).rejects.toThrow(
         'Network Error'
@@ -189,11 +209,11 @@ describe('API Services', () => {
           status: 400,
         },
       }
-      mockedAxios.get.mockRejectedValueOnce(error)
+      mockAxiosInstance.get.mockRejectedValueOnce(error)
 
       await expect(marketApi.getKlines('INVALID', '1h')).rejects.toThrow(
         'Invalid symbol'
       )
     })
   })
-}) 
+})                      

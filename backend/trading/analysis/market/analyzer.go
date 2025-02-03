@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/leonzhao/gosol/backend/trading/analysis/monitoring"
+"github.com/devinjacknz/godydxhyber/backend/trading/analysis/monitoring"
 )
 
 // MarketAnalyzer provides market analysis functionality

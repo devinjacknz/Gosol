@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/leonzhao/gosol/backend/trading/analysis/monitoring"
+"github.com/devinjacknz/godydxhyber/backend/trading/analysis/monitoring"
 )
 
 // RiskLevel represents the risk level
